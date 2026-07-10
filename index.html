@@ -1,0 +1,1267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Migraine & Trigger Log</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,450;9..144,560&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    /* text */
+    --ink:#232d2f; --ink-soft:#48545a; --muted:#6c685c;
+    /* surfaces (warm paper + warm white cards) */
+    --paper:#f2efe7; --card:#fffdf9; --field:#faf8f2;
+    --line:#e4dfd2; --line-strong:#d6d0c1;
+    /* accent + semantic */
+    --accent:#527a67; --accent-dark:#3d5b4d; --accent-tint:#eaf1ec;
+    --warn:#b0563f; --warn-tint:#f9ece7;
+    --period:#a15c7a; --prodrome:#c98a4a; --hydration:#4a8ba8;
+    /* shape scale: containers 14 · nested 12 · controls 10 · pills full */
+    --r-card:14px; --r-nest:12px; --r-ctrl:10px; --r-pill:999px;
+    /* elevation, tinted to ink hue (never pure black) */
+    --shadow-sm:0 1px 2px rgba(35,45,47,0.05);
+    --shadow-md:0 8px 24px -14px rgba(35,45,47,0.28);
+    --ease:cubic-bezier(0.16,1,0.3,1);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
+  header{padding:20px 18px 0;border-bottom:1px solid var(--line);background:color-mix(in srgb, var(--paper) 88%, transparent);backdrop-filter:saturate(1.4) blur(10px);-webkit-backdrop-filter:saturate(1.4) blur(10px);position:sticky;top:0;z-index:10;}
+  h1{font-family:'Fraunces',Georgia,serif;font-weight:560;font-size:25px;margin:0 0 3px;letter-spacing:-0.2px;line-height:1.15;color:var(--ink);}
+  .icon{width:14px;height:14px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;vertical-align:-2px;}
+  .icon-lg{width:44px;height:44px;stroke:var(--muted);fill:none;stroke-width:1.3;stroke-linecap:round;stroke-linejoin:round;opacity:0.5;display:block;margin:0 auto 12px;}
+  .hero-illustration{width:100%;max-width:260px;height:auto;display:block;margin:0 auto 6px;}
+  .sub{font-size:13px;color:var(--muted);line-height:1.45;}
+  nav{display:flex;gap:2px;margin-top:16px;overflow-x:auto;}
+  nav button{flex:1;background:none;border:none;padding:11px 6px 12px;font-size:13px;color:var(--muted);border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap;transition:color 0.2s var(--ease),border-color 0.2s var(--ease);}
+  nav button:hover{color:var(--ink-soft);}
+  nav button.active{color:var(--accent-dark);border-bottom:2px solid var(--accent-dark);font-weight:600;}
+  main{padding:18px 16px 44px;max-width:600px;margin:0 auto;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-card);padding:18px;margin-bottom:14px;box-shadow:var(--shadow-sm);}
+  .card h2{font-size:11.5px;text-transform:uppercase;letter-spacing:0.09em;color:var(--accent-dark);font-weight:700;margin:0 0 14px;}
+  label{display:block;font-size:13px;color:var(--muted);margin-bottom:5px;margin-top:14px;font-weight:500;}
+  label:first-of-type{margin-top:0;}
+  input[type=text],input[type=time],input[type=number],input[type=email],input[type=date],textarea{width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:var(--r-ctrl);font-size:15px;background:var(--field);color:var(--ink);font-family:inherit;transition:border-color 0.15s var(--ease),box-shadow 0.15s var(--ease);}
+  input::placeholder,textarea::placeholder{color:#9c9789;}
+  input:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-tint);}
+  textarea{resize:vertical;min-height:56px;line-height:1.5;}
+  input[type=file]{font-size:13px;color:var(--muted);}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+  .row2{display:flex;gap:10px;}
+  .row2 > div{flex:1;}
+  .row3{display:flex;gap:8px;}
+  .row3 > div{flex:1;}
+  .chip-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;}
+  .chip{padding:7px 13px;border:1px solid var(--line-strong);border-radius:var(--r-pill);font-size:13px;cursor:pointer;background:var(--field);color:var(--ink-soft);user-select:none;transition:background 0.15s var(--ease),border-color 0.15s var(--ease),color 0.15s var(--ease),transform 0.08s var(--ease);}
+  .chip:hover{border-color:var(--accent);color:var(--accent-dark);}
+  .chip:active{transform:scale(0.96);}
+  .chip.on{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .chip.on:hover{color:#fff;}
+  .type-chip{display:inline-flex;align-items:center;gap:6px;padding:8px 13px;border:1px solid var(--line-strong);border-radius:var(--r-pill);font-size:13px;cursor:pointer;background:var(--field);color:var(--ink-soft);transition:background 0.15s var(--ease),border-color 0.15s var(--ease),color 0.15s var(--ease),transform 0.08s var(--ease);}
+  .type-chip:hover{border-color:var(--accent);color:var(--accent-dark);}
+  .type-chip:active{transform:scale(0.96);}
+  .type-chip.on{background:var(--accent-dark);border-color:var(--accent-dark);color:#fff;font-weight:600;}
+  .type-chip.on:hover{color:#fff;}
+  .severity{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;}
+  .sev-btn{flex:1;min-width:26px;text-align:center;padding:9px 0;border:1px solid var(--line-strong);border-radius:var(--r-ctrl);cursor:pointer;font-size:13px;color:var(--ink-soft);background:var(--field);transition:background 0.15s var(--ease),border-color 0.15s var(--ease),color 0.15s var(--ease),transform 0.08s var(--ease);}
+  .sev-btn:hover{border-color:var(--warn);color:var(--warn);}
+  .sev-btn:active{transform:scale(0.94);}
+  .sev-btn.on{background:var(--warn);border-color:var(--warn);color:#fff;font-weight:600;}
+  .sev-btn.on:hover{color:#fff;}
+  .btn{padding:11px 16px;border:none;border-radius:var(--r-ctrl);background:var(--accent);color:#fff;font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap;width:100%;margin-top:16px;box-shadow:var(--shadow-sm);transition:background 0.15s var(--ease),transform 0.08s var(--ease),box-shadow 0.15s var(--ease);}
+  .btn:hover{background:var(--accent-dark);box-shadow:var(--shadow-md);}
+  .btn:active{transform:translateY(1px);box-shadow:var(--shadow-sm);}
+  .btn:disabled{opacity:0.55;cursor:default;box-shadow:none;}
+  .btn:disabled:hover{background:var(--accent);}
+  .btn.ghost{background:none;border:1px solid var(--line-strong);color:var(--ink-soft);width:auto;margin-top:0;padding:7px 11px;font-size:12px;font-weight:500;box-shadow:none;}
+  .btn.ghost:hover{background:var(--card);border-color:var(--accent);color:var(--accent-dark);box-shadow:none;}
+  .btn.small{width:auto; padding:9px 13px; font-size:13px; margin-top:8px;}
+  .btn.cancel{background:var(--warn); margin-top:8px;}
+  .btn.cancel:hover{background:#974733;}
+  .day-picker{display:flex;align-items:center;gap:10px;margin-bottom:16px;}
+  .day-picker input[type=date]{flex:1;}
+  .day-picker button{background:var(--card);border:1px solid var(--line-strong);border-radius:var(--r-ctrl);padding:9px 12px;color:var(--accent-dark);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:border-color 0.15s var(--ease),background 0.15s var(--ease),transform 0.08s var(--ease);}
+  .day-picker button:hover{border-color:var(--accent);background:var(--accent-tint);}
+  .day-picker button:active{transform:scale(0.94);}
+  .day-picker button .icon{width:16px;height:16px;}
+  .entry-item{border:1px solid var(--line);border-radius:var(--r-nest);padding:11px 13px;margin-bottom:8px;background:var(--field);font-size:13px;cursor:pointer;transition:border-color 0.15s var(--ease),box-shadow 0.15s var(--ease),transform 0.1s var(--ease);}
+  .entry-item:hover{border-color:var(--accent);box-shadow:var(--shadow-md);transform:translateY(-1px);}
+  .entry-item .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;}
+  .entry-item .tag{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:3px 9px;border-radius:var(--r-pill);color:#fff;font-weight:600;letter-spacing:0.01em;}
+  .entry-item .tag .icon{width:11px;height:11px;}
+  .entry-item .time{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums;}
+  .entry-item .x{color:var(--muted);cursor:pointer;padding:2px 4px;display:inline-flex;border-radius:var(--r-ctrl);transition:color 0.15s var(--ease),background 0.15s var(--ease);}
+  .entry-item .x:hover{color:var(--warn);background:var(--warn-tint);}
+  .med-catalog-item .x{display:inline-flex;color:var(--muted);cursor:pointer;padding:2px;border-radius:6px;transition:color 0.15s var(--ease);}
+  .med-catalog-item .x:hover{color:var(--warn);}
+  .interruption-row .x{display:inline-flex;}
+  .entry-item .body{color:var(--ink);line-height:1.45;}
+  .history-entry{border:1px solid var(--line);border-radius:var(--r-card);padding:14px 16px;margin-bottom:12px;background:var(--card);box-shadow:var(--shadow-sm);}
+  .history-entry .date{font-weight:600;font-size:14px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--line);display:flex; justify-content:space-between; align-items:center;font-variant-numeric:tabular-nums;color:var(--ink);}
+  .empty{text-align:center;color:var(--muted);font-size:14px;padding:34px 20px;line-height:1.5;}
+  .analysis-note{font-size:13px;line-height:1.55;color:var(--ink-soft);}
+  .analysis-note b{color:var(--accent-dark);}
+  .bar-row{display:flex;align-items:center;gap:10px;margin-bottom:9px;font-size:13px;}
+  .bar-row .label{width:110px;color:var(--ink-soft);flex-shrink:0;}
+  .bar-track{flex:1;background:#ece7db;border-radius:var(--r-pill);height:14px;overflow:hidden;}
+  .bar-fill{height:100%;background:var(--accent);border-radius:var(--r-pill);transition:width 0.5s var(--ease);}
+  .bar-val{width:38px;text-align:right;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums;}
+  .count-pill{display:inline-block;font-size:11px;background:var(--accent-tint);color:var(--accent-dark);padding:2px 8px;border-radius:var(--r-pill);margin-left:6px;font-weight:600;}
+  .warn-box{background:var(--warn-tint); border:1px solid #e6b9ab; border-left:3px solid var(--warn); border-radius:var(--r-nest); padding:13px 14px; font-size:13px; line-height:1.55; color:var(--ink); margin-bottom:12px;}
+  .warn-box b{color:var(--warn);}
+  .med-catalog-item{display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--line); font-size:14px;}
+  .med-catalog-item:last-child{border-bottom:none;}
+  .med-catalog-item .cat{font-size:11px; color:var(--muted);}
+  .med-tap-btn{display:flex; flex-direction:column; align-items:flex-start; gap:2px; padding:10px 14px; border:1px solid var(--line-strong); border-radius:var(--r-nest); background:var(--field); cursor:pointer; min-width:120px; transition:background 0.15s var(--ease),border-color 0.15s var(--ease),transform 0.08s var(--ease);}
+  .med-tap-btn:hover{border-color:var(--accent);}
+  .med-tap-btn:active{transform:scale(0.97);}
+  .med-tap-btn .name{font-weight:600; font-size:14px; color:var(--ink);}
+  .med-tap-btn .cat{font-size:11px; color:var(--muted);}
+  .med-tap-btn.taken{background:var(--accent); border-color:var(--accent);}
+  .med-tap-btn.taken .name, .med-tap-btn.taken .cat{color:#fff;}
+  .interruption-row{display:flex; gap:8px; align-items:center; margin-top:8px;}
+  .interruption-row input{flex:1;}
+  .interruption-row .x{cursor:pointer; color:var(--muted); padding:4px;border-radius:6px;transition:color 0.15s var(--ease);}
+  .interruption-row .x:hover{color:var(--warn);}
+  #authScreen{max-width:400px;margin:64px auto;padding:0 20px;text-align:center;}
+  #authScreen h1{margin-bottom:6px;font-size:28px;}
+  #authScreen .sub{margin-bottom:24px;}
+  #authScreen input{margin-bottom:10px;text-align:center;}
+  #authStatus{font-size:13px;color:var(--muted);margin-top:12px;line-height:1.5;}
+  #signOutBtn{position:absolute; top:20px; right:16px; font-size:12px;}
+  #settingsBtn{position:absolute; top:20px; right:92px; font-size:12px;}
+  .ai-output{font-size:14px; line-height:1.65; white-space:pre-wrap;color:var(--ink);}
+  #medsModal{backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);}
+  #medsModal > div{box-shadow:0 24px 60px -20px rgba(35,45,47,0.45);border:1px solid var(--line);}
+  #medsModal h2{font-family:'Fraunces',Georgia,serif;font-weight:560;font-size:19px;letter-spacing:-0.2px;}
+  @media (prefers-reduced-motion: reduce){
+    *{transition:none !important;}
+  }
+  @media print{
+    nav, .btn, header .sub, #signOutBtn, #settingsBtn, #screenshotRow { display:none !important; }
+    header{backdrop-filter:none;-webkit-backdrop-filter:none;position:static;}
+    .card{ break-inside: avoid; box-shadow:none; }
+  }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute;overflow:hidden;">
+<defs>
+<symbol id="icon-food" viewBox="0 0 24 24"><path d="M12 3c-4.5 0-8 3.2-8 8 0 5.5 4.5 10 9 10 1 0 2-3.3 2-8 0-5.5-1.5-10-3-10z"/><path d="M6 15c3-2 6-5.5 8-10"/></symbol>
+<symbol id="icon-headache" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12l2-4 2 6 2-5 2 3"/></symbol>
+<symbol id="icon-prodrome" viewBox="0 0 24 24"><circle cx="12" cy="13" r="1.4" fill="currentColor" stroke="none"/><path d="M8.2 10a5.4 5.4 0 0 1 7.6 0"/><path d="M5.5 7.3a9.2 9.2 0 0 1 13 0"/></symbol>
+<symbol id="icon-meds" viewBox="0 0 24 24"><rect x="3.5" y="9" width="17" height="6" rx="3" transform="rotate(-45 12 12)"/><line x1="8.3" y1="15.7" x2="15.7" y2="8.3"/></symbol>
+<symbol id="icon-sleep" viewBox="0 0 24 24"><path d="M20 14.2A8.5 8.5 0 1 1 9.8 4a7 7 0 0 0 10.2 10.2z"/></symbol>
+<symbol id="icon-workout" viewBox="0 0 24 24"><path d="M12 20.5s-7-4.3-9.3-8.7A5.2 5.2 0 0 1 12 6a5.2 5.2 0 0 1 9.3 5.8C19 16.2 12 20.5 12 20.5z"/><path d="M3.5 12.5h4l1.8-2.7 2.7 5.4 1.8-3.5h6.2"/></symbol>
+<symbol id="icon-period" viewBox="0 0 24 24"><path d="M12 2.5s6.5 7.6 6.5 12.3a6.5 6.5 0 0 1-13 0C5.5 10.1 12 2.5 12 2.5z"/></symbol>
+<symbol id="icon-hydration" viewBox="0 0 24 24"><path d="M6 3.5h12l-1.4 15a2 2 0 0 1-2 1.8h-5.2a2 2 0 0 1-2-1.8L6 3.5z"/><line x1="6.6" y1="8.2" x2="17.4" y2="8.2"/></symbol>
+<symbol id="icon-note" viewBox="0 0 24 24"><path d="M11.5 20.5h9"/><path d="M16 3.5a2.1 2.1 0 0 1 3 3L7.5 18 3.5 19l1-4L16 3.5z"/></symbol>
+<symbol id="icon-check" viewBox="0 0 24 24"><polyline points="4 12.5 9.5 18 20 6"/></symbol>
+<symbol id="icon-x" viewBox="0 0 24 24"><line x1="5.5" y1="5.5" x2="18.5" y2="18.5"/><line x1="18.5" y1="5.5" x2="5.5" y2="18.5"/></symbol>
+<symbol id="icon-chevron-left" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></symbol>
+<symbol id="icon-chevron-right" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></symbol>
+<symbol id="icon-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
+<symbol id="icon-calendar" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="16.5" rx="2"/><line x1="16" y1="2.5" x2="16" y2="6.5"/><line x1="8" y1="2.5" x2="8" y2="6.5"/><line x1="3" y1="10" x2="21" y2="10"/></symbol>
+<symbol id="icon-print" viewBox="0 0 24 24"><path d="M6 9V3.5h12V9"/><rect x="4" y="9" width="16" height="8" rx="1.5"/><path d="M6 14.5h12V21H6z"/></symbol>
+<symbol id="icon-export" viewBox="0 0 24 24"><path d="M12 3v11"/><polyline points="7.5 9.5 12 14 16.5 9.5"/><path d="M4 16.5v2.8A1.7 1.7 0 0 0 5.7 21h12.6a1.7 1.7 0 0 0 1.7-1.7v-2.8"/></symbol>
+<symbol id="icon-import" viewBox="0 0 24 24"><path d="M12 14V3"/><polyline points="7.5 7.5 12 3 16.5 7.5"/><path d="M4 16.5v2.8A1.7 1.7 0 0 0 5.7 21h12.6a1.7 1.7 0 0 0 1.7-1.7v-2.8"/></symbol>
+<symbol id="icon-pills" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="16" rx="4"/><path d="M12 4v16"/><path d="M6.5 9.5h3M6.5 14.5h3"/></symbol>
+</defs>
+</svg>
+
+<div id="authScreen">
+  <svg class="hero-illustration" viewBox="0 0 320 130" xmlns="http://www.w3.org/2000/svg">
+  <path d="M0,95 Q80,40 160,85 T320,75" fill="none" stroke="#5b7a6b" stroke-width="2" opacity="0.55"/>
+  <path d="M0,108 Q80,68 160,102 T320,98" fill="none" stroke="#a15c7a" stroke-width="2" opacity="0.4"/>
+  <path d="M0,118 Q80,92 160,112 T320,110" fill="none" stroke="#4a8ba8" stroke-width="2" opacity="0.35"/>
+  <path d="M244,20a15,15 0 1 0 15,15 a11.5,11.5 0 0 1 -15,-15z" fill="#c98a4a" opacity="0.55"/>
+  <circle cx="55" cy="28" r="2.4" fill="#5b7a6b" opacity="0.6"/>
+  <circle cx="82" cy="18" r="1.9" fill="#a15c7a" opacity="0.5"/>
+  <circle cx="108" cy="32" r="1.7" fill="#4a8ba8" opacity="0.5"/>
+</svg>
+  <h1>Migraine & Trigger Log</h1>
+  <p class="sub" id="authModeSub">Sign in to your account.</p>
+  <input type="email" id="authEmail" placeholder="you@example.com">
+  <input type="password" id="authPassword" placeholder="Password">
+  <button class="btn" id="authSignInBtn">Sign in</button>
+  <button class="btn ghost" id="authSignUpBtn" style="width:100%; text-align:center; margin-top:8px;">First time here? Create an account</button>
+  <div id="authStatus"></div>
+</div>
+
+<div id="app" style="display:none;">
+<header style="position:relative;">
+  <button class="btn ghost" id="signOutBtn">Sign out</button>
+  <button class="btn ghost" id="settingsBtn" style="display:inline-flex; align-items:center; gap:5px;"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-pills"></use></svg>Meds list</button>
+  <h1>Migraine & Trigger Log</h1>
+  <div class="sub">Log anytime, as often as you need · patterns emerge after ~1 month</div>
+  <nav>
+    <button class="active" data-tab="log">Log</button>
+    <button data-tab="history">History</button>
+    <button data-tab="analysis">Analysis</button>
+  </nav>
+</header>
+
+<main>
+
+  <div id="tab-log">
+    <div class="day-picker">
+      <button id="dayBack"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-chevron-left"></use></svg></button>
+      <input type="date" id="entryDate">
+      <button id="dayFwd"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-chevron-right"></use></svg></button>
+    </div>
+
+    <div class="card" id="quickMedsCard">
+      <h2>Quick meds check-off</h2>
+      <div class="chip-row" id="quickMedsRow"></div>
+      <div id="quickMedsEmpty" class="analysis-note" style="display:none;">No saved medications yet. Tap "Meds list" above to add ones you take regularly, or use the Meds/Supp type below for a one-off.</div>
+    </div>
+
+    <div class="card">
+      <h2 id="formHeading">Add an entry</h2>
+      <div class="chip-row" id="typeRow">
+        <div class="type-chip on" data-val="food"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-food"></use></svg><span>Food</span></div>
+        <div class="type-chip" data-val="headache"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-headache"></use></svg><span>Headache</span></div>
+        <div class="type-chip" data-val="prodrome"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-prodrome"></use></svg><span>Early signs</span></div>
+        <div class="type-chip" data-val="meds"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-meds"></use></svg><span>Meds</span></div>
+        <div class="type-chip" data-val="sleep"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-sleep"></use></svg><span>Sleep</span></div>
+        <div class="type-chip" data-val="workout"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-workout"></use></svg><span>Exercise</span></div>
+        <div class="type-chip" data-val="period"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-period"></use></svg><span>Period</span></div>
+        <div class="type-chip" data-val="hydration"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-hydration"></use></svg><span>Water</span></div>
+        <div class="type-chip" data-val="note"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-note"></use></svg><span>Note</span></div>
+      </div>
+
+      <div id="screenshotRow" style="display:block; margin-top:10px;">
+        <label>Or upload a screenshot (Chronometer / MyFitnessPal / Whoop / Apple Watch) — AI drafts the fields for you to check</label>
+        <input type="file" id="screenshotFile" accept="image/*">
+        <div id="screenshotStatus" style="font-size:12px; color:var(--muted); margin-top:4px;"></div>
+      </div>
+
+      <label>Time (optional — leave blank for "now")</label>
+      <input type="time" id="entryTime">
+
+      <div id="fields-food" class="type-fields">
+        <label>What did you have?</label>
+        <input type="text" id="foodText" placeholder="e.g. 2 eggs, egg whites, buttered pan">
+      </div>
+
+      <div id="fields-headache" class="type-fields" style="display:none;">
+        <label>Start time (required for this one — use the Time field above)</label>
+        <label>Severity</label>
+        <div class="severity" id="severityRow">
+          <div class="sev-btn" data-val="1">1</div><div class="sev-btn" data-val="2">2</div>
+          <div class="sev-btn" data-val="3">3</div><div class="sev-btn" data-val="4">4</div>
+          <div class="sev-btn" data-val="5">5</div><div class="sev-btn" data-val="6">6</div>
+          <div class="sev-btn" data-val="7">7</div><div class="sev-btn" data-val="8">8</div>
+          <div class="sev-btn" data-val="9">9</div><div class="sev-btn" data-val="10">10</div>
+        </div>
+        <label>Duration (hours, optional — leave blank if still ongoing)</label>
+        <input type="number" id="headacheDuration" min="0" step="0.5">
+        <label>Brain fog</label>
+        <div class="chip-row" id="fogRow">
+          <div class="chip" data-val="mild">Mild</div>
+          <div class="chip" data-val="moderate">Moderate</div>
+          <div class="chip" data-val="severe">Severe</div>
+        </div>
+        <label>Dizziness</label>
+        <div class="chip-row" id="dizzyRow">
+          <div class="chip" data-val="mild">Mild</div>
+          <div class="chip" data-val="moderate">Moderate</div>
+          <div class="chip" data-val="severe">Severe</div>
+        </div>
+        <label>Other symptoms</label>
+        <div class="chip-row" id="symptomsRow">
+          <div class="chip" data-val="nausea">Nausea</div>
+          <div class="chip" data-val="light_sensitivity">Light sensitivity</div>
+          <div class="chip" data-val="sound_sensitivity">Sound sensitivity</div>
+          <div class="chip" data-val="smell_sensitivity">Smell sensitivity</div>
+          <div class="chip" data-val="visual_aura">Visual aura</div>
+          <div class="chip" data-val="neck_pain">Neck pain</div>
+          <div class="chip" data-val="vomiting">Vomiting</div>
+        </div>
+        <label>Notes (optional)</label>
+        <input type="text" id="headacheNote" placeholder="location of pain, anything unusual">
+      </div>
+
+      <div id="fields-prodrome" class="type-fields" style="display:none;">
+        <div class="analysis-note" style="margin-bottom:8px;">Early-warning signs can show up 24–48 hrs before a migraine — logging these separately from the headache itself often reveals the real pattern.</div>
+        <label>What are you noticing?</label>
+        <div class="chip-row" id="prodromeRow">
+          <div class="chip" data-val="fatigue">Fatigue</div>
+          <div class="chip" data-val="neck_stiffness">Neck stiffness</div>
+          <div class="chip" data-val="light_sensitivity">Light sensitivity</div>
+          <div class="chip" data-val="sound_sensitivity">Sound sensitivity</div>
+          <div class="chip" data-val="mood_change">Mood change</div>
+          <div class="chip" data-val="food_craving">Food craving</div>
+          <div class="chip" data-val="yawning">Excess yawning</div>
+          <div class="chip" data-val="concentration">Trouble concentrating</div>
+          <div class="chip" data-val="dizziness">Dizziness</div>
+          <div class="chip" data-val="nausea">Nausea</div>
+        </div>
+        <label>Note (optional)</label>
+        <input type="text" id="prodromeNote" placeholder="anything else you're noticing">
+      </div>
+
+      <div id="fields-meds" class="type-fields" style="display:none;">
+        <label>Medication name</label>
+        <input type="text" id="medName" placeholder="e.g. Sumatriptan, ibuprofen">
+        <label>Category</label>
+        <div class="chip-row" id="medCategoryRow">
+          <div class="chip" data-val="preventive">Preventive (daily)</div>
+          <div class="chip" data-val="acute">Acute / rescue</div>
+          <div class="chip" data-val="supplement">Supplement</div>
+          <div class="chip" data-val="other">Other</div>
+        </div>
+        <label>Dose (optional)</label>
+        <input type="text" id="medDetail" placeholder="e.g. 10mg">
+        <label style="margin-top:12px;"><input type="checkbox" id="medSaveCatalog" style="width:auto; display:inline; margin-right:6px;">Remember this medication for quick check-off next time</label>
+      </div>
+
+      <div id="fields-sleep" class="type-fields" style="display:none;">
+        <div class="row2">
+          <div><label>Bedtime</label><input type="time" id="bedtime"></div>
+          <div><label>Wake time</label><input type="time" id="waketime"></div>
+        </div>
+        <label>Sleep quality</label>
+        <div class="chip-row" id="sleepQuality">
+          <div class="chip" data-val="poor">Poor</div>
+          <div class="chip" data-val="fair">Fair</div>
+          <div class="chip" data-val="good">Good</div>
+          <div class="chip" data-val="great">Great</div>
+        </div>
+        <label>How did you feel waking up?</label>
+        <div class="chip-row" id="wakeFeelingRow">
+          <div class="chip" data-val="refreshed">Refreshed</div>
+          <div class="chip" data-val="ok">OK</div>
+          <div class="chip" data-val="groggy">Groggy</div>
+          <div class="chip" data-val="exhausted">Exhausted</div>
+          <div class="chip" data-val="headache_on_waking">Woke with headache</div>
+        </div>
+        <label>Woke up / napped mid-sleep? (optional)</label>
+        <div id="interruptionsList"></div>
+        <button type="button" class="btn small ghost" id="addInterruptionBtn"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-plus"></use></svg> Add interruption</button>
+        <label>Note (optional — e.g. Whoop sleep score)</label>
+        <input type="text" id="sleepNote" placeholder="e.g. Whoop score 78">
+      </div>
+
+      <div id="fields-workout" class="type-fields" style="display:none;">
+        <label>Activity</label>
+        <input type="text" id="workoutActivity" placeholder="e.g. Run, cycling, strength">
+        <div class="row2">
+          <div><label>Duration (min)</label><input type="number" id="workoutDuration" min="0"></div>
+          <div><label>Perceived intensity (1-10)</label><input type="number" id="workoutStrain" min="0" max="10" step="1"></div>
+        </div>
+        <div class="row2">
+          <div><label>Avg heart rate (optional)</label><input type="number" id="workoutHr" min="0"></div>
+          <div><label>Calories (optional)</label><input type="number" id="workoutCalories" min="0"></div>
+        </div>
+        <label>Note (optional)</label>
+        <input type="text" id="workoutNote" placeholder="optional detail">
+      </div>
+
+      <div id="fields-period" class="type-fields" style="display:none;">
+        <label>Flow</label>
+        <div class="chip-row" id="flowRow">
+          <div class="chip" data-val="spotting">Spotting</div>
+          <div class="chip" data-val="light">Light</div>
+          <div class="chip" data-val="medium">Medium</div>
+          <div class="chip" data-val="heavy">Heavy</div>
+        </div>
+        <label>Note (optional — cramps, mood, etc.)</label>
+        <input type="text" id="periodNote" placeholder="optional">
+      </div>
+
+      <div id="fields-hydration" class="type-fields" style="display:none;">
+        <label>Amount</label>
+        <div class="chip-row">
+          <div class="chip" data-preset="8">+8oz (1 cup)</div>
+          <div class="chip" data-preset="16">+16oz</div>
+          <div class="chip" data-preset="32">+32oz</div>
+        </div>
+        <label>Or enter oz</label>
+        <input type="number" id="hydrationAmount" min="0">
+      </div>
+
+      <div id="fields-note" class="type-fields" style="display:none;">
+        <label>Stress level</label>
+        <div class="chip-row" id="stressRow">
+          <div class="chip" data-val="low">Low</div>
+          <div class="chip" data-val="medium">Medium</div>
+          <div class="chip" data-val="high">High</div>
+        </div>
+        <label>Free note</label>
+        <textarea id="noteText" placeholder="screen time, weather, travel, anything else..."></textarea>
+      </div>
+
+      <button class="btn" id="addEntryBtn">Add to log</button>
+      <button class="btn cancel" id="cancelEditBtn" style="display:none;">Cancel edit</button>
+    </div>
+
+    <div class="card">
+      <h2>Today's entries</h2>
+      <div id="todayList"></div>
+    </div>
+  </div>
+
+  <div id="tab-history" style="display:none;">
+    <div class="card" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+      <button class="btn ghost" id="printBtn" style="width:auto; display:inline-flex; align-items:center; gap:6px;"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-print"></use></svg>Print / doctor view</button>
+    </div>
+    <div id="historyList"></div>
+  </div>
+
+  <div id="tab-analysis" style="display:none;">
+    <div class="card"><h2>Progress</h2><div class="analysis-note" id="progressNote"></div></div>
+    <div class="card" id="mohWarnCard" style="display:none;"></div>
+    <div class="card">
+      <h2>AI pattern analysis</h2>
+      <div class="analysis-note" style="margin-bottom:10px;">Sends your logged data (not screenshots) to Claude to look for candidate patterns across food, sleep, meds, cycle timing, and early-warning signs. This is a starting point for a conversation with your doctor, not a diagnosis.</div>
+      <button class="btn" id="aiAnalyzeBtn">Analyze my data</button>
+      <div id="aiOutput" class="ai-output" style="margin-top:14px;"></div>
+    </div>
+    <div class="card"><h2>Sleep hours vs. headache days</h2><div id="sleepChart"></div></div>
+    <div class="card"><h2>Headaches by cycle day (relative to period start)</h2><div id="cycleChart"></div></div>
+    <div class="card"><h2>Foods logged on headache days</h2><div id="foodChart"></div>
+      <div class="analysis-note" style="margin-top:8px;">Frequency only — not proof of cause. Also check the AI analysis above, which weighs the 24-48hr window before onset, not just same-day.</div>
+    </div>
+    <div class="card"><h2>Meds/supplements on headache days</h2><div id="medChart"></div></div>
+  </div>
+
+</main>
+</div>
+
+<!-- MEDS SETTINGS MODAL -->
+<div id="medsModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:100;">
+  <div style="background:var(--paper); max-width:480px; margin:60px auto; border-radius:12px; padding:20px; max-height:80vh; overflow-y:auto;">
+    <h2 style="margin-top:0;">Your medications</h2>
+    <div id="medsCatalogList"></div>
+    <hr style="border-color:var(--line); margin:16px 0;">
+    <label>Name</label>
+    <input type="text" id="newMedName" placeholder="e.g. Sumatriptan">
+    <label>Category</label>
+    <div class="chip-row" id="newMedCategoryRow">
+      <div class="chip on" data-val="preventive">Preventive</div>
+      <div class="chip" data-val="acute">Acute/rescue</div>
+      <div class="chip" data-val="supplement">Supplement</div>
+      <div class="chip" data-val="other">Other</div>
+    </div>
+    <label>Default dose (optional)</label>
+    <input type="text" id="newMedDose" placeholder="e.g. 10mg">
+    <button class="btn" id="saveNewMedBtn">Add medication</button>
+    <button class="btn ghost" id="closeMedsModalBtn" style="width:100%; margin-top:8px; text-align:center;">Close</button>
+  </div>
+</div>
+
+<script>
+// ======================= CONFIG — fill these in =======================
+const SUPABASE_URL = 'https://piiahxbeqsrzagjximoh.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpaWFoeGJlcXNyemFnanhpbW9oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM1OTg1NzMsImV4cCI6MjA5OTE3NDU3M30.cWRlOx3XfE1ImM84vCqglnql1NuS0OvVcao-Ulhqg1s';
+// ========================================================================
+
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const $ = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+
+// ---------- Auth ----------
+$('#authSignInBtn').addEventListener('click', async ()=>{
+  const email = $('#authEmail').value.trim();
+  const password = $('#authPassword').value;
+  if(!email || !password){ $('#authStatus').textContent = 'Enter both email and password.'; return; }
+  $('#authStatus').textContent = 'Signing in...';
+  const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  $('#authStatus').textContent = error ? ('Error: ' + error.message) : '';
+});
+$('#authSignUpBtn').addEventListener('click', async ()=>{
+  const email = $('#authEmail').value.trim();
+  const password = $('#authPassword').value;
+  if(!email || !password){ $('#authStatus').textContent = 'Enter both email and password.'; return; }
+  if(password.length < 6){ $('#authStatus').textContent = 'Password must be at least 6 characters.'; return; }
+  $('#authStatus').textContent = 'Creating account...';
+  const { data, error } = await supabaseClient.auth.signUp({ email, password });
+  if(error){ $('#authStatus').textContent = 'Error: ' + error.message; return; }
+  if(data.session){
+    $('#authStatus').textContent = ''; // signed in immediately
+  } else {
+    $('#authStatus').textContent = 'Account created. Check your email to confirm, then sign in above.';
+  }
+});
+$('#signOutBtn').addEventListener('click', async ()=>{ await supabaseClient.auth.signOut(); location.reload(); });
+supabaseClient.auth.onAuthStateChange((event, session)=>{
+  if(session){
+    $('#authScreen').style.display='none';
+    $('#app').style.display='block';
+    initApp();
+  } else {
+    $('#authScreen').style.display='block';
+    $('#app').style.display='none';
+  }
+});
+let appInitialized = false;
+function initApp(){
+  if(appInitialized) return;
+  appInitialized = true;
+  renderTodayList();
+  renderQuickMeds();
+}
+
+// ---------- Tabs ----------
+const tabs = {log:'tab-log', history:'tab-history', analysis:'tab-analysis'};
+$$('nav button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    $$('nav button').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    Object.values(tabs).forEach(id=> $('#'+id).style.display='none');
+    $('#'+tabs[btn.dataset.tab]).style.display='block';
+    if(btn.dataset.tab==='history') renderHistory();
+    if(btn.dataset.tab==='analysis') renderAnalysis();
+  });
+});
+
+// ---------- Chip helpers ----------
+function singleSelect(container){
+  container.querySelectorAll('.chip').forEach(chip=>{
+    chip.addEventListener('click', ()=>{
+      const wasOn = chip.classList.contains('on');
+      container.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));
+      if(!wasOn) chip.classList.add('on');
+    });
+  });
+}
+function multiSelect(container){
+  container.querySelectorAll('.chip').forEach(chip=>{
+    chip.addEventListener('click', ()=> chip.classList.toggle('on'));
+  });
+}
+singleSelect($('#fogRow')); singleSelect($('#dizzyRow'));
+singleSelect($('#sleepQuality')); singleSelect($('#wakeFeelingRow'));
+singleSelect($('#stressRow')); singleSelect($('#flowRow'));
+singleSelect($('#medCategoryRow')); singleSelect($('#newMedCategoryRow'));
+multiSelect($('#symptomsRow')); multiSelect($('#prodromeRow'));
+$('#severityRow').querySelectorAll('.sev-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    const wasOn = btn.classList.contains('on');
+    $('#severityRow').querySelectorAll('.sev-btn').forEach(b=>b.classList.remove('on'));
+    if(!wasOn) btn.classList.add('on');
+  });
+});
+// hydration presets
+$$('#fields-hydration .chip[data-preset]').forEach(chip=>{
+  chip.addEventListener('click', ()=>{
+    const cur = parseInt($('#hydrationAmount').value)||0;
+    $('#hydrationAmount').value = cur + parseInt(chip.dataset.preset);
+  });
+});
+
+let currentType = 'food';
+let editingId = null;
+$('#typeRow').querySelectorAll('.type-chip').forEach(chip=>{
+  chip.addEventListener('click', ()=>{
+    if(editingId) return; // don't allow type switch mid-edit
+    $('#typeRow').querySelectorAll('.type-chip').forEach(c=>c.classList.remove('on'));
+    chip.classList.add('on');
+    currentType = chip.dataset.val;
+    $$('.type-fields').forEach(f=>f.style.display='none');
+    $('#fields-'+currentType).style.display='block';
+    $('#screenshotRow').style.display = ['food','sleep','workout'].includes(currentType) ? 'block' : 'none';
+    $('#screenshotStatus').textContent=''; $('#screenshotFile').value='';
+  });
+});
+$('#screenshotRow').style.display = ['food','sleep','workout'].includes(currentType) ? 'block' : 'none';
+
+function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+function svgIcon(id, size){ size = size || 14; return '<svg class="icon" width="'+size+'" height="'+size+'" viewBox="0 0 24 24"><use href="#icon-'+id+'"></use></svg>'; }
+function xIcon(){ return svgIcon('x', 13); }
+function nowTime(){ const d=new Date(); return d.toTimeString().slice(0,5); }
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+$('#entryDate').value = todayStr();
+
+// ---------- Sleep interruptions (dynamic rows) ----------
+let interruptions = [];
+function renderInterruptions(){
+  $('#interruptionsList').innerHTML = interruptions.map((it,i)=>`
+    <div class="interruption-row">
+      <input type="time" value="${it.time||''}" data-i="${i}" data-f="time">
+      <input type="text" placeholder="e.g. woke up, nap" value="${escapeHtml(it.note||'')}" data-i="${i}" data-f="note">
+      <span class="x" data-i="${i}">${xIcon()}</span>
+    </div>`).join('');
+  $('#interruptionsList').querySelectorAll('input').forEach(inp=>{
+    inp.addEventListener('input', ()=>{
+      const i = parseInt(inp.dataset.i), f = inp.dataset.f;
+      interruptions[i][f] = inp.value;
+    });
+  });
+  $('#interruptionsList').querySelectorAll('.x').forEach(x=>{
+    x.addEventListener('click', ()=>{ interruptions.splice(parseInt(x.dataset.i),1); renderInterruptions(); });
+  });
+}
+$('#addInterruptionBtn').addEventListener('click', ()=>{ interruptions.push({time:'', note:''}); renderInterruptions(); });
+
+// ---------- Build entry payload ----------
+function buildEntry(){
+  const time = $('#entryTime').value || nowTime();
+  const base = { type: currentType, time };
+  if(currentType==='food'){
+    const text = $('#foodText').value.trim();
+    if(!text) return null;
+    return {...base, text};
+  }
+  if(currentType==='headache'){
+    const sevBtn = $('#severityRow').querySelector('.sev-btn.on');
+    return {...base,
+      severity: sevBtn ? parseInt(sevBtn.dataset.val) : null,
+      duration: $('#headacheDuration').value || null,
+      fog: getSingle('#fogRow'),
+      dizziness: getSingle('#dizzyRow'),
+      symptoms: getMulti('#symptomsRow'),
+      note: $('#headacheNote').value.trim() || null };
+  }
+  if(currentType==='prodrome'){
+    const symptoms = getMulti('#prodromeRow');
+    const note = $('#prodromeNote').value.trim();
+    if(symptoms.length===0 && !note) return null;
+    return {...base, symptoms, note: note||null};
+  }
+  if(currentType==='meds'){
+    const name = $('#medName').value.trim();
+    if(!name) return null;
+    const category = getSingle('#medCategoryRow') || 'other';
+    const dose = $('#medDetail').value.trim() || null;
+    if($('#medSaveCatalog').checked) saveMedToCatalog(name, category, dose);
+    return {...base, name, category, dose};
+  }
+  if(currentType==='sleep'){
+    const bed = $('#bedtime').value, wake = $('#waketime').value;
+    return {...base, bedtime: bed||null, waketime: wake||null,
+      quality: getSingle('#sleepQuality'), hours: computeSleepHours(bed, wake),
+      wakeFeeling: getSingle('#wakeFeelingRow'),
+      interruptions: interruptions.filter(it=>it.time||it.note),
+      note: $('#sleepNote').value.trim() || null };
+  }
+  if(currentType==='workout'){
+    const activity = $('#workoutActivity').value.trim();
+    const duration = $('#workoutDuration').value || null;
+    const strain = $('#workoutStrain').value || null;
+    const hr = $('#workoutHr').value || null;
+    const cal = $('#workoutCalories').value || null;
+    const note = $('#workoutNote').value.trim() || null;
+    if(!activity && !duration && !strain && !hr && !cal && !note) return null;
+    return {...base, activity: activity||null, duration, strain, hr, calories: cal, note};
+  }
+  if(currentType==='period'){
+    const flow = getSingle('#flowRow');
+    const note = $('#periodNote').value.trim();
+    if(!flow && !note) return null;
+    return {...base, flow, note: note||null};
+  }
+  if(currentType==='hydration'){
+    const amount = $('#hydrationAmount').value;
+    if(!amount) return null;
+    return {...base, amount: parseInt(amount)};
+  }
+  if(currentType==='note'){
+    const stress = getSingle('#stressRow');
+    const text = $('#noteText').value.trim();
+    if(!stress && !text) return null;
+    return {...base, stress, text: text||null};
+  }
+}
+function getSingle(sel){ const on = $(sel).querySelector('.chip.on'); return on ? on.dataset.val : null; }
+function getMulti(sel){ return $$(sel+' .chip.on').map(c=>c.dataset.val); }
+function computeSleepHours(bed, wake){
+  if(!bed || !wake) return null;
+  let [bh,bm]=bed.split(':').map(Number), [wh,wm]=wake.split(':').map(Number);
+  let diff = (wh*60+wm)-(bh*60+bm);
+  if(diff<=0) diff += 24*60;
+  return Math.round((diff/60)*10)/10;
+}
+function clearTypeFields(){
+  $('#entryTime').value='';
+  $('#foodText').value='';
+  $$('#severityRow .sev-btn').forEach(c=>c.classList.remove('on'));
+  $('#headacheDuration').value='';
+  $$('#fogRow .chip').forEach(c=>c.classList.remove('on'));
+  $$('#dizzyRow .chip').forEach(c=>c.classList.remove('on'));
+  $$('#symptomsRow .chip').forEach(c=>c.classList.remove('on'));
+  $('#headacheNote').value='';
+  $$('#prodromeRow .chip').forEach(c=>c.classList.remove('on'));
+  $('#prodromeNote').value='';
+  $('#medName').value=''; $$('#medCategoryRow .chip').forEach(c=>c.classList.remove('on'));
+  $('#medDetail').value=''; $('#medSaveCatalog').checked=false;
+  $('#bedtime').value=''; $('#waketime').value='';
+  $$('#sleepQuality .chip').forEach(c=>c.classList.remove('on'));
+  $$('#wakeFeelingRow .chip').forEach(c=>c.classList.remove('on'));
+  interruptions=[]; renderInterruptions();
+  $('#sleepNote').value='';
+  $('#workoutActivity').value=''; $('#workoutDuration').value='';
+  $('#workoutStrain').value=''; $('#workoutHr').value=''; $('#workoutCalories').value='';
+  $('#workoutNote').value='';
+  $$('#flowRow .chip').forEach(c=>c.classList.remove('on'));
+  $('#periodNote').value='';
+  $('#hydrationAmount').value='';
+  $$('#stressRow .chip').forEach(c=>c.classList.remove('on'));
+  $('#noteText').value='';
+  $('#screenshotFile').value=''; $('#screenshotStatus').textContent='';
+}
+
+// ---------- Supabase data access: entries ----------
+async function getDayEntries(date){
+  const { data, error } = await supabaseClient.from('entries').select('*').eq('date', date).order('time', {ascending:true});
+  if(error){ console.error(error); return []; }
+  return data.map(row => ({ id: row.id, type: row.type, time: row.time, ...row.data }));
+}
+async function addEntry(date, entry){
+  const { type, time, ...data } = entry;
+  const { error } = await supabaseClient.from('entries').insert({ date, time, type, data });
+  if(error){ alert('Save failed: ' + error.message); console.error(error); return false; }
+  return true;
+}
+async function updateEntry(id, date, entry){
+  const { type, time, ...data } = entry;
+  const { error } = await supabaseClient.from('entries').update({ date, time, type, data }).eq('id', id);
+  if(error){ alert('Update failed: ' + error.message); console.error(error); return false; }
+  return true;
+}
+async function deleteEntry(id){
+  const { error } = await supabaseClient.from('entries').delete().eq('id', id);
+  if(error){ alert('Delete failed: ' + error.message); console.error(error); }
+}
+async function getAllDays(){
+  const { data, error } = await supabaseClient.from('entries').select('*').order('date', {ascending:false});
+  if(error){ console.error(error); return []; }
+  const byDate = {};
+  data.forEach(row=>{
+    if(!byDate[row.date]) byDate[row.date] = [];
+    byDate[row.date].push({ id: row.id, type: row.type, time: row.time, ...row.data });
+  });
+  return Object.entries(byDate).map(([date, entries])=>({date, entries}));
+}
+
+// ---------- Meds catalog ----------
+async function getMedsCatalog(){
+  const { data, error } = await supabaseClient.from('meds_catalog').select('*').order('created_at', {ascending:true});
+  if(error){ console.error(error); return []; }
+  return data;
+}
+async function saveMedToCatalog(name, category, dose){
+  const existing = await getMedsCatalog();
+  if(existing.some(m=>m.name.toLowerCase()===name.toLowerCase())) return;
+  await supabaseClient.from('meds_catalog').insert({ name, category, default_dose: dose });
+  renderQuickMeds();
+}
+async function deleteMedFromCatalog(id){
+  await supabaseClient.from('meds_catalog').delete().eq('id', id);
+  renderMedsModal(); renderQuickMeds();
+}
+
+async function renderQuickMeds(){
+  const meds = await getMedsCatalog();
+  const date = $('#entryDate').value;
+  const todays = await getDayEntries(date);
+  const takenNames = new Set(todays.filter(e=>e.type==='meds').map(e=>e.name));
+  if(meds.length===0){ $('#quickMedsRow').innerHTML=''; $('#quickMedsEmpty').style.display='block'; return; }
+  $('#quickMedsEmpty').style.display='none';
+  $('#quickMedsRow').innerHTML = meds.map(m=>`
+    <div class="med-tap-btn ${takenNames.has(m.name)?'taken':''}" data-id="${m.id}" data-name="${escapeHtml(m.name)}" data-cat="${m.category}" data-dose="${escapeHtml(m.default_dose||'')}">
+      <span class="name">${takenNames.has(m.name)?'✓ ':''}${escapeHtml(m.name)}</span>
+      <span class="cat">${m.category}${m.default_dose ? ' · '+escapeHtml(m.default_dose) : ''}</span>
+    </div>`).join('');
+  $$('#quickMedsRow .med-tap-btn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const entry = { type:'meds', time: nowTime(), name: btn.dataset.name, category: btn.dataset.cat, dose: btn.dataset.dose||null };
+      const ok = await addEntry($('#entryDate').value, entry);
+      if(ok){ renderTodayList(); renderQuickMeds(); }
+    });
+  });
+}
+
+// ---------- Meds modal ----------
+$('#settingsBtn').addEventListener('click', ()=>{ $('#medsModal').style.display='block'; renderMedsModal(); });
+$('#closeMedsModalBtn').addEventListener('click', ()=>{ $('#medsModal').style.display='none'; });
+async function renderMedsModal(){
+  const meds = await getMedsCatalog();
+  $('#medsCatalogList').innerHTML = meds.length===0
+    ? '<div class="empty">No medications saved yet.</div>'
+    : meds.map(m=>`<div class="med-catalog-item"><span>${escapeHtml(m.name)} <span class="cat">(${m.category}${m.default_dose?', '+escapeHtml(m.default_dose):''})</span></span><span class="x" data-id="${m.id}" style="cursor:pointer;">${xIcon()}</span></div>`).join('');
+  $$('#medsCatalogList .x').forEach(x=> x.addEventListener('click', ()=> deleteMedFromCatalog(x.dataset.id)));
+}
+$('#saveNewMedBtn').addEventListener('click', async ()=>{
+  const name = $('#newMedName').value.trim();
+  if(!name) return;
+  const category = getSingle('#newMedCategoryRow') || 'preventive';
+  const dose = $('#newMedDose').value.trim() || null;
+  await supabaseClient.from('meds_catalog').insert({ name, category, default_dose: dose });
+  $('#newMedName').value=''; $('#newMedDose').value='';
+  renderMedsModal(); renderQuickMeds();
+});
+
+// ---------- Add / Update / Edit entries ----------
+$('#addEntryBtn').addEventListener('click', async ()=>{
+  const entry = buildEntry();
+  if(!entry){ alert('Add at least one detail before saving.'); return; }
+  const date = $('#entryDate').value;
+  let ok;
+  if(editingId){
+    ok = await updateEntry(editingId, date, entry);
+  } else {
+    ok = await addEntry(date, entry);
+  }
+  if(ok){
+    exitEditMode();
+    clearTypeFields();
+    renderTodayList();
+    renderQuickMeds();
+    const btn = $('#addEntryBtn'); const old = btn.textContent;
+    btn.textContent = editingId ? old : 'Added'; setTimeout(()=>btn.textContent=old, 900);
+  }
+});
+$('#cancelEditBtn').addEventListener('click', ()=>{ exitEditMode(); clearTypeFields(); });
+
+function exitEditMode(){
+  editingId = null;
+  $('#formHeading').textContent = 'Add an entry';
+  $('#addEntryBtn').textContent = 'Add to log';
+  $('#cancelEditBtn').style.display='none';
+  $$('#typeRow .type-chip').forEach(c=> c.style.opacity='1');
+}
+
+function selectType(type){
+  const chip = $(`#typeRow .type-chip[data-val="${type}"]`);
+  if(!chip) return;
+  $('#typeRow').querySelectorAll('.type-chip').forEach(c=>c.classList.remove('on'));
+  chip.classList.add('on');
+  currentType = type;
+  $$('.type-fields').forEach(f=>f.style.display='none');
+  $('#fields-'+type).style.display='block';
+  $('#screenshotRow').style.display = ['food','sleep','workout'].includes(type) ? 'block' : 'none';
+}
+
+function populateFieldsForEdit(e){
+  selectType(e.type);
+  $('#entryTime').value = e.time || '';
+  if(e.type==='food') $('#foodText').value = e.text||'';
+  if(e.type==='headache'){
+    if(e.severity!=null) setSevChip(e.severity);
+    $('#headacheDuration').value = e.duration||'';
+    if(e.fog) setChip('#fogRow', e.fog);
+    if(e.dizziness) setChip('#dizzyRow', e.dizziness);
+    (e.symptoms||[]).forEach(s=> setChipMulti('#symptomsRow', s));
+    $('#headacheNote').value = e.note||'';
+  }
+  if(e.type==='prodrome'){
+    (e.symptoms||[]).forEach(s=> setChipMulti('#prodromeRow', s));
+    $('#prodromeNote').value = e.note||'';
+  }
+  if(e.type==='meds'){
+    $('#medName').value = e.name||'';
+    if(e.category) setChip('#medCategoryRow', e.category);
+    $('#medDetail').value = e.dose||'';
+  }
+  if(e.type==='sleep'){
+    $('#bedtime').value = e.bedtime||''; $('#waketime').value = e.waketime||'';
+    if(e.quality) setChip('#sleepQuality', e.quality);
+    if(e.wakeFeeling) setChip('#wakeFeelingRow', e.wakeFeeling);
+    interruptions = (e.interruptions||[]).slice(); renderInterruptions();
+    $('#sleepNote').value = e.note||'';
+  }
+  if(e.type==='workout'){
+    $('#workoutActivity').value = e.activity||'';
+    $('#workoutDuration').value = e.duration||'';
+    $('#workoutStrain').value = e.strain||'';
+    $('#workoutHr').value = e.hr||'';
+    $('#workoutCalories').value = e.calories||'';
+    $('#workoutNote').value = e.note||'';
+  }
+  if(e.type==='period'){
+    if(e.flow) setChip('#flowRow', e.flow);
+    $('#periodNote').value = e.note||'';
+  }
+  if(e.type==='hydration'){
+    $('#hydrationAmount').value = e.amount||'';
+  }
+  if(e.type==='note'){
+    if(e.stress) setChip('#stressRow', e.stress);
+    $('#noteText').value = e.text||'';
+  }
+  editingId = e.id;
+  $('#formHeading').textContent = 'Edit entry';
+  $('#addEntryBtn').textContent = 'Update entry';
+  $('#cancelEditBtn').style.display='block';
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+function setChip(sel, val){ const c = $(sel).querySelector(`.chip[data-val="${val}"]`); if(c) c.classList.add('on'); }
+function setChipMulti(sel, val){ const c = document.querySelector(`${sel} .chip[data-val="${val}"]`); if(c) c.classList.add('on'); }
+function setSevChip(val){ const b = $('#severityRow').querySelector(`.sev-btn[data-val="${val}"]`); if(b) b.classList.add('on'); }
+
+async function renderTodayList(){
+  const date = $('#entryDate').value;
+  const entries = await getDayEntries(date);
+  $('#todayList').innerHTML = entries.length===0
+    ? '<div class="empty">'+svgIcon('calendar',44).replace('class="icon"','class="icon-lg"')+'<div>Nothing logged for this day yet.</div></div>'
+    : entries.map(e=> entryRowHtml(e)).join('');
+  wireEntryRows('#todayList', date);
+}
+function wireEntryRows(containerSel, date){
+  $(containerSel).querySelectorAll('.entry-item').forEach(row=>{
+    row.addEventListener('click', async (ev)=>{
+      if(ev.target.classList.contains('x')) return;
+      const id = row.dataset.id;
+      const entries = await getDayEntries(date || row.dataset.date);
+      const entry = entries.find(en=>en.id===id);
+      if(entry){
+        if(date) $('#entryDate').value = date; else $('#entryDate').value = row.dataset.date;
+        populateFieldsForEdit(entry);
+        $$('nav button').forEach(b=>b.classList.remove('active'));
+        $('nav button[data-tab="log"]').classList.add('active');
+        Object.values(tabs).forEach(id=> $('#'+id).style.display='none');
+        $('#tab-log').style.display='block';
+      }
+    });
+  });
+  $(containerSel).querySelectorAll('.x').forEach(x=>{
+    x.addEventListener('click', async (ev)=>{
+      ev.stopPropagation();
+      await deleteEntry(x.dataset.id);
+      renderTodayList(); renderHistory(); renderQuickMeds();
+    });
+  });
+}
+function tagColor(type){
+  return {food:'#8a9b6e', headache:'#b0563f', prodrome:'#c98a4a', meds:'#5b7a6b', sleep:'#3f5c4f', workout:'#4a6f8a', period:'#a15c7a', hydration:'#4a8ba8', note:'#7a7568'}[type] || '#7a7568';
+}
+function tagLabel(type){
+  return {food:'Food', headache:'Headache', prodrome:'Early signs', meds:'Meds', sleep:'Sleep', workout:'Exercise', period:'Period', hydration:'Water', note:'Note'}[type] || type;
+}
+function tagIconId(type){
+  return {food:'food', headache:'headache', prodrome:'prodrome', meds:'meds', sleep:'sleep', workout:'workout', period:'period', hydration:'hydration', note:'note'}[type] || 'note';
+}
+const SYMPTOM_LABELS = {nausea:'Nausea', light_sensitivity:'Light sensitivity', sound_sensitivity:'Sound sensitivity', smell_sensitivity:'Smell sensitivity', visual_aura:'Visual aura', neck_pain:'Neck pain', vomiting:'Vomiting'};
+const PRODROME_LABELS = {fatigue:'Fatigue', neck_stiffness:'Neck stiffness', light_sensitivity:'Light sensitivity', sound_sensitivity:'Sound sensitivity', mood_change:'Mood change', food_craving:'Food craving', yawning:'Excess yawning', concentration:'Trouble concentrating', dizziness:'Dizziness', nausea:'Nausea'};
+function entryBody(e){
+  if(e.type==='food') return escapeHtml(e.text);
+  if(e.type==='headache'){
+    const parts=[];
+    if(e.severity!=null) parts.push(`Severity ${e.severity}`);
+    if(e.duration) parts.push(`${e.duration}h`);
+    if(e.fog) parts.push(`Fog: ${e.fog}`);
+    if(e.dizziness) parts.push(`Dizzy: ${e.dizziness}`);
+    if(e.symptoms && e.symptoms.length) parts.push(e.symptoms.map(s=>SYMPTOM_LABELS[s]||s).join(', '));
+    if(e.note) parts.push(escapeHtml(e.note));
+    return parts.join(' · ') || '(no details)';
+  }
+  if(e.type==='prodrome'){
+    const parts=[];
+    if(e.symptoms && e.symptoms.length) parts.push(e.symptoms.map(s=>PRODROME_LABELS[s]||s).join(', '));
+    if(e.note) parts.push(escapeHtml(e.note));
+    return parts.join(' · ') || '(no details)';
+  }
+  if(e.type==='meds'){
+    const parts=[e.name + (e.category?` (${e.category})`:'')];
+    if(e.dose) parts.push(e.dose);
+    return escapeHtml(parts.filter(Boolean).join(' · '));
+  }
+  if(e.type==='sleep'){
+    const parts=[];
+    if(e.bedtime||e.waketime) parts.push(`${e.bedtime||'?'} → ${e.waketime||'?'}`);
+    if(e.hours) parts.push(`${e.hours}h`);
+    if(e.quality) parts.push(e.quality);
+    if(e.wakeFeeling) parts.push('woke: '+e.wakeFeeling);
+    if(e.interruptions && e.interruptions.length) parts.push(e.interruptions.length+' interruption(s)');
+    if(e.note) parts.push(e.note);
+    return escapeHtml(parts.join(' · ')) || '(no details)';
+  }
+  if(e.type==='workout'){
+    const parts=[];
+    if(e.activity) parts.push(e.activity);
+    if(e.duration) parts.push(`${e.duration}min`);
+    if(e.strain) parts.push(`Intensity ${e.strain}/10`);
+    if(e.hr) parts.push(`Avg HR ${e.hr}`);
+    if(e.calories) parts.push(`${e.calories}cal`);
+    if(e.note) parts.push(e.note);
+    return escapeHtml(parts.join(' · ')) || '(no details)';
+  }
+  if(e.type==='period'){
+    const parts=[];
+    if(e.flow) parts.push('Flow: '+e.flow);
+    if(e.note) parts.push(e.note);
+    return escapeHtml(parts.join(' · ')) || '(no details)';
+  }
+  if(e.type==='hydration') return (e.amount||0) + ' oz';
+  if(e.type==='note'){
+    const parts=[];
+    if(e.stress) parts.push(`Stress: ${e.stress}`);
+    if(e.text) parts.push(e.text);
+    return escapeHtml(parts.join(' · ')) || '(no details)';
+  }
+  return '';
+}
+function entryRowHtml(e, date){
+  return `<div class="entry-item" data-id="${e.id}" ${date?`data-date="${date}"`:''}>
+    <div class="top">
+      <span><span class="tag" style="background:${tagColor(e.type)}">${svgIcon(tagIconId(e.type),11)}${tagLabel(e.type)}</span> <span class="time">${e.time||''}</span></span>
+      <span class="x" data-id="${e.id}">${xIcon()}</span>
+    </div>
+    <div class="body">${entryBody(e)}</div>
+  </div>`;
+}
+
+$('#dayBack').addEventListener('click', ()=> shiftDay(-1));
+$('#dayFwd').addEventListener('click', ()=> shiftDay(1));
+function shiftDay(n){
+  const d = new Date($('#entryDate').value + 'T00:00:00');
+  d.setDate(d.getDate()+n);
+  $('#entryDate').value = d.toISOString().slice(0,10);
+  renderTodayList(); renderQuickMeds();
+}
+$('#entryDate').addEventListener('change', ()=>{ renderTodayList(); renderQuickMeds(); });
+
+async function renderHistory(){
+  const days = await getAllDays();
+  days.sort((a,b)=> a.date < b.date ? 1 : -1);
+  const list = $('#historyList');
+  if(days.length===0){ list.innerHTML = '<div class="empty">'+svgIcon('calendar',44).replace('class="icon"','class="icon-lg"')+'<div>No entries yet.</div></div>'; return; }
+  list.innerHTML = days.map(d=>{
+    const sorted = d.entries.slice().sort((a,b)=>(a.time||'').localeCompare(b.time||''));
+    return `<div class="history-entry"><div class="date">${d.date}</div>${sorted.map(e=>entryRowHtml(e, d.date)).join('')}</div>`;
+  }).join('');
+  wireEntryRows('#historyList', null);
+}
+$('#printBtn').addEventListener('click', ()=> window.print());
+
+// ---------- Analysis ----------
+function findCycleDays(days){
+  // Returns sorted list of period start dates (first day with any 'period' entry after a gap of 20+ days from the previous one)
+  const periodDates = days.filter(d=> d.entries.some(e=>e.type==='period')).map(d=>d.date).sort();
+  const starts = [];
+  let last = null;
+  periodDates.forEach(dateStr=>{
+    const d = new Date(dateStr+'T00:00:00');
+    if(!last || (d - last)/86400000 > 20){ starts.push(d); }
+    last = d;
+  });
+  return starts;
+}
+function cycleDayFor(dateStr, periodStarts){
+  const d = new Date(dateStr+'T00:00:00');
+  let best = null;
+  periodStarts.forEach(start=>{
+    const diff = Math.round((d - start)/86400000);
+    if(diff >= -7 && diff <= 35){
+      if(best===null || Math.abs(diff) < Math.abs(best)) best = diff;
+    }
+  });
+  return best;
+}
+
+async function renderAnalysis(){
+  const days = await getAllDays();
+  const n = days.length;
+  $('#progressNote').innerHTML = n===0
+    ? 'No entries yet.'
+    : `<b>${n}</b> day${n===1?'':'s'} with at least one entry. ${n<28 ? `Keep going — a full month (you're at ${Math.round(n/28*100)}%) gives enough range to see cycle-related and slower-building patterns, not just same-day ones.` : 'You have a solid month of data — patterns should be starting to show. Still a conversation-starter for your doctor, not a diagnosis.'}`;
+
+  // MOH check: acute med days in the last 30 days
+  const last30 = days.filter(d=> (new Date() - new Date(d.date+'T00:00:00'))/86400000 <= 30);
+  const acuteDays = last30.filter(d=> d.entries.some(e=>e.type==='meds' && e.category==='acute')).length;
+  const mohCard = $('#mohWarnCard');
+  if(acuteDays >= 8){
+    mohCard.style.display='block';
+    mohCard.innerHTML = `<div class="warn-box"><b>Worth flagging to your doctor:</b> you've logged acute/rescue medication on <b>${acuteDays}</b> of the last 30 days. Regular use of acute headache medication on 10+ days a month (or 15+ for simple pain relievers like NSAIDs) for more than 3 months can itself cause a second headache disorder called medication-overuse headache. This isn't a diagnosis — just something concrete to bring up at your next visit.</div>`;
+  } else { mohCard.style.display='none'; }
+
+  const dayRollups = days.map(d=>{
+    const headacheEntries = d.entries.filter(e=>e.type==='headache' && e.severity!=null);
+    const sleepEntry = d.entries.find(e=>e.type==='sleep' && e.hours!=null);
+    const foods = d.entries.filter(e=>e.type==='food').map(e=>e.text.toLowerCase().trim());
+    const meds = d.entries.filter(e=>e.type==='meds').map(e=>e.name.toLowerCase().trim());
+    return { date: d.date, hasHeadache: headacheEntries.length>0, sleepHours: sleepEntry?sleepEntry.hours:null, foods, meds };
+  });
+  const withH = dayRollups.filter(d=>d.hasHeadache);
+  const withoutH = dayRollups.filter(d=>!d.hasHeadache);
+  const avg = arr => { const v=arr.map(d=>d.sleepHours).filter(x=>x!=null); return v.length ? v.reduce((a,b)=>a+b,0)/v.length : null; };
+  const avgH = avg(withH), avgN = avg(withoutH);
+  let sleepHtml='';
+  if(avgH==null && avgN==null){ sleepHtml='<div class="empty">Not enough sleep data yet.</div>'; }
+  else{
+    const max = Math.max(avgH||0, avgN||0, 8);
+    sleepHtml += barRow('Headache days', avgH, max, withH.length, v=>v.toFixed(1)+'h');
+    sleepHtml += barRow('No headache', avgN, max, withoutH.length, v=>v.toFixed(1)+'h');
+  }
+  $('#sleepChart').innerHTML = sleepHtml;
+  $('#foodChart').innerHTML = freqChart(withH, d=>d.foods, '#b0563f');
+  $('#medChart').innerHTML = freqChart(withH, d=>d.meds, '#8a9b6e');
+
+  // Cycle chart
+  const periodStarts = findCycleDays(days);
+  if(periodStarts.length===0){
+    $('#cycleChart').innerHTML = '<div class="empty">Log period days to see this — need at least one logged period start.</div>';
+  } else {
+    const byCycleDay = {};
+    dayRollups.forEach(d=>{
+      if(!d.hasHeadache) return;
+      const cd = cycleDayFor(d.date, periodStarts);
+      if(cd===null) return;
+      const key = cd<0 ? String(cd) : '+'+cd;
+      byCycleDay[key] = (byCycleDay[key]||0)+1;
+    });
+    const relevant = Object.entries(byCycleDay).filter(([k])=>{ const v=parseInt(k); return v>=-5 && v<=7; }).sort((a,b)=>parseInt(a[0])-parseInt(b[0]));
+    if(relevant.length===0){
+      $('#cycleChart').innerHTML = '<div class="empty">No headache days logged near a period start yet.</div>';
+    } else {
+      const max = Math.max(...relevant.map(([,v])=>v));
+      $('#cycleChart').innerHTML = '<div class="analysis-note" style="margin-bottom:8px;">Day 0 = first day of period. Migraines clustering around days -2 to +3 suggest a menstrual pattern.</div>' +
+        relevant.map(([k,v])=> barRow('Day '+k, v, max, null, x=>String(x))).join('');
+    }
+  }
+
+  function barRow(label, val, max, count, fmt){
+    const pct = val==null?0:Math.min(100,(val/max)*100);
+    return `<div class="bar-row"><div class="label">${label}${count!=null?`<span class="count-pill">n=${count}</span>`:''}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+      <div class="bar-val">${val==null?'—':fmt(val)}</div></div>`;
+  }
+  function freqChart(subset, extractor, color){
+    if(subset.length===0) return '<div class="empty">No headache days logged yet.</div>';
+    const counts={};
+    subset.forEach(d=> extractor(d).forEach(item=>{ if(!item) return; counts[item]=(counts[item]||0)+1; }));
+    const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,8);
+    if(sorted.length===0) return '<div class="empty">Nothing logged on headache days yet.</div>';
+    const max = sorted[0][1];
+    return sorted.map(([item,count])=>{
+      const pct=(count/max)*100;
+      return `<div class="bar-row"><div class="label">${escapeHtml(item)}</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${pct}%; background:${color}"></div></div>
+        <div class="bar-val">${count}/${subset.length}</div></div>`;
+    }).join('');
+  }
+}
+
+// ---------- AI pattern analysis ----------
+$('#aiAnalyzeBtn').addEventListener('click', async ()=>{
+  const out = $('#aiOutput');
+  const btn = $('#aiAnalyzeBtn');
+  btn.disabled = true; btn.textContent = 'Analyzing...';
+  out.textContent = '';
+  try{
+    const days = await getAllDays();
+    if(days.length < 5){
+      out.textContent = 'Log at least a few days first — there\'s not enough data yet for a meaningful analysis.';
+      return;
+    }
+    days.sort((a,b)=> a.date < b.date ? -1 : 1);
+    const compact = days.map(d=> `${d.date}: ` + d.entries.map(e=>{
+      const {id, type, time, ...rest} = e;
+      return `[${type}${time?' '+time:''} ${JSON.stringify(rest)}]`;
+    }).join(' ')).join('\n');
+
+    const prompt = `You are helping a patient with chronic migraine look for candidate patterns in their self-logged data, to discuss with their neurologist. Below is their daily log (food, headache episodes with severity/symptoms, prodrome/early-warning signs, medications with category preventive/acute/supplement, sleep, exercise, period/flow, hydration, and free notes).
+
+Important context to apply:
+- Migraine prodrome (early-warning) symptoms can start 24-48 hours before the headache itself. Something logged shortly before a headache may be an early symptom of the attack already starting, not a cause. Weight the 24-48hr window before each headache's start time, not just same-day items, and say so when relevant.
+- Menstrual migraines cluster around day -2 to +3 relative to period start (day 0). Check if headaches correlate with cycle timing.
+- Flag if acute/rescue medication appears on 10+ days in any rolling 30-day window (possible medication-overuse headache risk).
+- Don't overstate confidence — note when a pattern is based on very few data points (e.g. only 2 occurrences).
+- Be concrete: name specific foods/meds/patterns you see, with counts, not vague generalities.
+
+Structure your response with these sections: 1) Summary (2-3 sentences), 2) Candidate patterns worth watching (bulleted, with the evidence count for each), 3) Cycle-related observations if period data exists, 4) Medication overuse risk if relevant, 5) What to ask your doctor about. End with a brief reminder this is pattern-spotting from self-reported data, not a diagnosis.
+
+LOG DATA:
+${compact}`;
+
+    const response = await fetch('/.netlify/functions/analyze', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1500,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    const data = await response.json();
+    const textBlock = (data.content || []).find(b=>b.type==='text');
+    out.textContent = textBlock ? textBlock.text : 'No analysis returned — try again.';
+  }catch(e){
+    console.error(e);
+    out.textContent = 'Analysis failed: ' + (e.message || e);
+  }finally{
+    btn.disabled = false; btn.textContent = 'Analyze my data';
+  }
+});
+
+// ---------- Screenshot analysis ----------
+function fileToBase64(file){
+  return new Promise((res, rej)=>{
+    const r = new FileReader();
+    r.onload = ()=> res(r.result.split(',')[1]);
+    r.onerror = ()=> rej(new Error('Could not read file'));
+    r.readAsDataURL(file);
+  });
+}
+function promptForType(type){
+  if(type==='food') return 'This is a screenshot from a nutrition tracking app (Chronometer, MyFitnessPal, or similar). Extract the food/drink items logged and macro totals if visible. Respond with ONLY raw JSON, no markdown fences, no preamble, in exactly this shape: {"summary": "short comma-separated list of items", "calories": number_or_null, "protein_g": number_or_null, "carbs_g": number_or_null, "fat_g": number_or_null}';
+  if(type==='sleep') return 'This is a screenshot from a sleep tracking app (Whoop, Apple Watch/Health, Oura, or similar). Extract bedtime and wake time in 24-hour HH:MM if visible, total sleep duration in decimal hours, and any sleep score/performance percentage if shown. Respond with ONLY raw JSON, no markdown fences, no preamble, in exactly this shape: {"bedtime": "HH:MM"_or_null, "waketime": "HH:MM"_or_null, "hours": number_or_null, "score": number_or_null}';
+  if(type==='workout') return 'This is a screenshot from a fitness app (Whoop, Apple Watch, or similar) showing a workout/activity. Extract the activity name, duration in minutes, an intensity/strain score if shown, average heart rate, and calories burned, if visible. Respond with ONLY raw JSON, no markdown fences, no preamble, in exactly this shape: {"activity": string_or_null, "duration_min": number_or_null, "strain": number_or_null, "avg_hr": number_or_null, "calories": number_or_null}';
+  return '';
+}
+function stripJsonFences(text){ return text.replace(/```json|```/g, '').trim(); }
+async function analyzeScreenshot(type, file){
+  const statusEl = $('#screenshotStatus');
+  statusEl.textContent = 'Reading screenshot…';
+  try{
+    const base64 = await fileToBase64(file);
+    const mediaType = file.type || 'image/png';
+    const response = await fetch('/.netlify/functions/analyze', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1000,
+        messages: [{ role: 'user', content: [
+          {type: 'image', source: {type: 'base64', media_type: mediaType, data: base64}},
+          {type: 'text', text: promptForType(type)}
+        ]}]
+      })
+    });
+    const data = await response.json();
+    const textBlock = (data.content || []).find(b=>b.type==='text');
+    if(!textBlock){ throw new Error('No response from image analysis'); }
+    const parsed = JSON.parse(stripJsonFences(textBlock.text));
+    fillFieldsFromExtraction(type, parsed);
+    statusEl.textContent = 'Drafted below from the screenshot — check the numbers, then tap "Add to log".';
+  }catch(e){
+    console.error('analyzeScreenshot error:', e);
+    statusEl.textContent = 'Could not read that screenshot (' + (e && e.message ? e.message : String(e)) + '). Enter it manually instead.';
+  }
+}
+function fillFieldsFromExtraction(type, d){
+  if(type==='food'){
+    const parts = [];
+    if(d.summary) parts.push(d.summary);
+    const macros = [];
+    if(d.calories!=null) macros.push(d.calories+' cal');
+    if(d.protein_g!=null) macros.push(d.protein_g+'g protein');
+    if(d.carbs_g!=null) macros.push(d.carbs_g+'g carbs');
+    if(d.fat_g!=null) macros.push(d.fat_g+'g fat');
+    if(macros.length) parts.push('(' + macros.join(', ') + ')');
+    $('#foodText').value = parts.join(' ');
+  }
+  if(type==='sleep'){
+    if(d.bedtime) $('#bedtime').value = d.bedtime;
+    if(d.waketime) $('#waketime').value = d.waketime;
+    if(d.score!=null) $('#sleepNote').value = 'Score ' + d.score;
+  }
+  if(type==='workout'){
+    if(d.activity) $('#workoutActivity').value = d.activity;
+    if(d.duration_min!=null) $('#workoutDuration').value = d.duration_min;
+    if(d.strain!=null) $('#workoutStrain').value = d.strain;
+    if(d.avg_hr!=null) $('#workoutHr').value = d.avg_hr;
+    if(d.calories!=null) $('#workoutCalories').value = d.calories;
+  }
+}
+$('#screenshotFile').addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  if(file) analyzeScreenshot(currentType, file);
+});
+</script>
+</body>
+</html>
