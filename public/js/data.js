@@ -7,6 +7,9 @@ let backend = null;
 
 export function setBackend(next){ backend = next; }
 
+// True while the sample-data backend is in use. Nothing is stored on the device then.
+export const isDemo = ()=> Boolean(backend && backend.demo);
+
 export function data(){
   if(!backend) throw new Error('No data backend has been set.');
   return backend;

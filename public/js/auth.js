@@ -1,6 +1,7 @@
 // Sign-in, sign-out and the required password change. The Supabase client is
 // passed in for its auth calls; settings go through data() like everything else.
-import { data } from './data.js';
+import { data, setBackend } from './data.js';
+import { createDemoBackend } from './demo.js';
 import { $ } from './ui.js';
 
 const MIN_PASSWORD_LENGTH = 10;
@@ -9,6 +10,7 @@ let gatedUserId = null;        // user already sent through the gate; ignore rep
 let gateRun = 0;               // guards against overlapping gate checks
 let unrecordedPassword = null; // accepted by updateUser, but password_set_at is not saved yet
 let enterApp = ()=>{};         // starts the app once someone has passed the gate
+let demoActive = false;        // the sample-data demo is open; Supabase is never used then
 
 function showOnly(which){
   $('#authScreen').style.display = which==='auth' ? 'block' : 'none';
@@ -74,6 +76,17 @@ export function initAuth(client, onEnter){
     $('#authStatus').textContent = error ? ('Error: ' + error.message) : '';
   });
   $('#gateRetryBtn').addEventListener('click', gateSession);
+  $('#demoBtn').addEventListener('click', ()=>{
+    demoActive = true;
+    gateRun++;
+    setBackend(createDemoBackend());
+    document.body.classList.add('demo');
+    $('#demoBanner').hidden = false;
+    showOnly('app');
+    enterApp();
+  });
+  // Back to sign-in: a reload drops the sample data and the demo backend.
+  $('#demoBanner').addEventListener('click', event=>{ event.preventDefault(); location.reload(); });
   $('#savePasswordBtn').addEventListener('click', async ()=>{
     const pw = $('#newPassword').value, confirmPw = $('#confirmPassword').value;
     const status = $('#passwordStatus');
@@ -118,6 +131,7 @@ export function initAuth(client, onEnter){
   $('#signOutBtn').addEventListener('click', signOut);
   $('#passwordSignOutBtn').addEventListener('click', signOut);
   client.auth.onAuthStateChange((event, session)=>{
+    if(demoActive) return;
     if(!session){ gateRun++; gatedUserId = null; unrecordedPassword = null; showOnly('auth'); return; }
     // Token refreshes and updateUser fire this too; only a new sign-in needs the gate.
     if(event === 'INITIAL_SESSION' || event === 'SIGNED_IN'){

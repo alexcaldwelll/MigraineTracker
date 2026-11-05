@@ -1,6 +1,6 @@
 // The entry sheet: one short form for one entry type, used for adding and
 // editing, plus saving, field wiring and filling fields from a screenshot.
-import { data, emptyOnError } from './data.js';
+import { data, emptyOnError, isDemo } from './data.js';
 import { localDate, nowTime, shortDate } from './dates.js';
 import { closedHeadacheTimes } from './headache.js';
 import { changeEntryItems, splitEntry } from './food.js';
@@ -290,7 +290,7 @@ function showType(type){
   $('#entryTime').value = draftTimes[type] || '';
   showTimeField(Boolean($('#entryTime').value));
   $$('.type-fields').forEach(f=>{ f.hidden = f.id !== 'fields-'+type; });
-  $('#screenshotRow').hidden = !SCREENSHOT_TYPES.includes(type);
+  $('#screenshotRow').hidden = isDemo() || !SCREENSHOT_TYPES.includes(type);
   resetScreenshot();
   $('#quickMedsBlock').hidden = Boolean(editingId);
   syncSaveButton();

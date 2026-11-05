@@ -1,6 +1,6 @@
 // The Insights tab: progress, the medication-overuse flag, one thing to try next
 // and the charts.
-import { data, emptyOnError } from './data.js';
+import { data, emptyOnError, isDemo } from './data.js';
 import { localDate } from './dates.js';
 import { foodNames } from './food-items.js';
 import { $, escapeHtml } from './ui.js';
@@ -193,10 +193,12 @@ let settling = null;        // one review save at a time, whoever asks
 const keptIds = new Set();  // reviews the person has dismissed
 
 function loadKept(){
+  if(isDemo()) return;   // the demo keeps nothing on the device
   try{ JSON.parse(localStorage.getItem('keptTrials') || '[]').forEach(id=> keptIds.add(id)); }catch(error){ /* nothing remembered */ }
 }
 function rememberKept(id){
   keptIds.add(id);
+  if(isDemo()) return;
   try{ localStorage.setItem('keptTrials', JSON.stringify([...keptIds])); }catch(error){ /* kept for this visit only */ }
 }
 
