@@ -1148,6 +1148,26 @@ async function renderAnalysis(){
   }
 }
 
+// ---------- AI requests ----------
+async function aiRequest(action, payload){
+  const send = (token)=> fetch('/.netlify/functions/ai', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token},
+    body: JSON.stringify({ action, payload })
+  });
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if(!session) throw new Error('Please sign in again.');
+  let response = await send(session.access_token);
+  if(response.status === 401){
+    const { data, error } = await supabaseClient.auth.refreshSession();
+    if(error || !data.session) throw new Error('Please sign in again.');
+    response = await send(data.session.access_token);
+  }
+  const body = await response.json().catch(()=> null);
+  if(!response.ok) throw new Error((body && body.error) || 'The AI service is unavailable. Try again later.');
+  return body;
+}
+
 // ---------- AI pattern analysis ----------
 $('#aiAnalyzeBtn').addEventListener('click', async ()=>{
   const out = $('#aiOutput');
@@ -1160,38 +1180,8 @@ $('#aiAnalyzeBtn').addEventListener('click', async ()=>{
       out.textContent = 'Log at least a few days first — there\'s not enough data yet for a meaningful analysis.';
       return;
     }
-    days.sort((a,b)=> a.date < b.date ? -1 : 1);
-    const compact = days.map(d=> `${d.date}: ` + d.entries.map(e=>{
-      const {id, type, time, ...rest} = e;
-      return `[${type}${time?' '+time:''} ${JSON.stringify(rest)}]`;
-    }).join(' ')).join('\n');
-
-    const prompt = `You are helping a patient with chronic migraine look for candidate patterns in their self-logged data, to discuss with their neurologist. Below is their daily log (food, headache episodes with severity/symptoms, prodrome/early-warning signs, medications with category preventive/acute/supplement, sleep, exercise, period/flow, hydration, and free notes).
-
-Important context to apply:
-- Migraine prodrome (early-warning) symptoms can start 24-48 hours before the headache itself. Something logged shortly before a headache may be an early symptom of the attack already starting, not a cause. Weight the 24-48hr window before each headache's start time, not just same-day items, and say so when relevant.
-- Menstrual migraines cluster around day -2 to +3 relative to period start (day 0). Check if headaches correlate with cycle timing.
-- Flag if acute/rescue medication appears on 10+ days in any rolling 30-day window (possible medication-overuse headache risk).
-- Don't overstate confidence — note when a pattern is based on very few data points (e.g. only 2 occurrences).
-- Be concrete: name specific foods/meds/patterns you see, with counts, not vague generalities.
-
-Structure your response with these sections: 1) Summary (2-3 sentences), 2) Candidate patterns worth watching (bulleted, with the evidence count for each), 3) Cycle-related observations if period data exists, 4) Medication overuse risk if relevant, 5) What to ask your doctor about. End with a brief reminder this is pattern-spotting from self-reported data, not a diagnosis.
-
-LOG DATA:
-${compact}`;
-
-    const response = await fetch('/.netlify/functions/analyze', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1500,
-        messages: [{ role: 'user', content: prompt }]
-      })
-    });
-    const data = await response.json();
-    const textBlock = (data.content || []).find(b=>b.type==='text');
-    out.textContent = textBlock ? textBlock.text : 'No analysis returned — try again.';
+    const { text } = await aiRequest('analyze', {});
+    out.textContent = text;
   }catch(e){
     console.error(e);
     out.textContent = 'Analysis failed: ' + (e.message || e);
@@ -1209,35 +1199,13 @@ function fileToBase64(file){
     r.readAsDataURL(file);
   });
 }
-function promptForType(type){
-  if(type==='food') return 'This is a screenshot from a nutrition tracking app (Chronometer, MyFitnessPal, or similar). Extract the food/drink items logged and macro totals if visible. Respond with ONLY raw JSON, no markdown fences, no preamble, in exactly this shape: {"summary": "short comma-separated list of items", "calories": number_or_null, "protein_g": number_or_null, "carbs_g": number_or_null, "fat_g": number_or_null}';
-  if(type==='sleep') return 'This is a screenshot from a sleep tracking app (Whoop, Apple Watch/Health, Oura, or similar). Extract bedtime and wake time in 24-hour HH:MM if visible, total sleep duration in decimal hours, and any sleep score/performance percentage if shown. Respond with ONLY raw JSON, no markdown fences, no preamble, in exactly this shape: {"bedtime": "HH:MM"_or_null, "waketime": "HH:MM"_or_null, "hours": number_or_null, "score": number_or_null}';
-  if(type==='workout') return 'This is a screenshot from a fitness app (Whoop, Apple Watch, or similar) showing a workout/activity. Extract the activity name, duration in minutes, an intensity/strain score if shown, average heart rate, and calories burned, if visible. Respond with ONLY raw JSON, no markdown fences, no preamble, in exactly this shape: {"activity": string_or_null, "duration_min": number_or_null, "strain": number_or_null, "avg_hr": number_or_null, "calories": number_or_null}';
-  return '';
-}
-function stripJsonFences(text){ return text.replace(/```json|```/g, '').trim(); }
 async function analyzeScreenshot(type, file){
   const statusEl = $('#screenshotStatus');
   statusEl.textContent = 'Reading screenshot…';
   try{
     const base64 = await fileToBase64(file);
     const mediaType = file.type || 'image/png';
-    const response = await fetch('/.netlify/functions/analyze', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
-        messages: [{ role: 'user', content: [
-          {type: 'image', source: {type: 'base64', media_type: mediaType, data: base64}},
-          {type: 'text', text: promptForType(type)}
-        ]}]
-      })
-    });
-    const data = await response.json();
-    const textBlock = (data.content || []).find(b=>b.type==='text');
-    if(!textBlock){ throw new Error('No response from image analysis'); }
-    const parsed = JSON.parse(stripJsonFences(textBlock.text));
+    const parsed = await aiRequest('read_screenshot', { type, mediaType, data: base64 });
     fillFieldsFromExtraction(type, parsed);
     statusEl.textContent = 'Drafted below from the screenshot — check the numbers, then tap "Add to log".';
   }catch(e){
