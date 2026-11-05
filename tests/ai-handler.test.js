@@ -506,6 +506,11 @@ test("getUser throws when Supabase is down", async (t) => {
   await assert.rejects(getUser("tok"));
 });
 
+test("getUser throws on a rate limit, so it is not read as a bad token", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => fakeResponse(429, { message: "slow down" }));
+  await assert.rejects(getUser("tok"));
+});
+
 test("consumeQuota calls the RPC with the user's own token", async (t) => {
   const fetchMock = t.mock.method(globalThis, "fetch", async () => fakeResponse(200, true));
   assert.equal(await consumeQuota("tok", "analyze"), true);
