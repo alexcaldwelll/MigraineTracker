@@ -74,3 +74,42 @@ test('every statement is safe to re-run', () => {
     assert.ok(lower.includes(`drop policy if exists ${name} on ${table};`), p);
   }
 });
+
+const APP_TABLES = ['entries', 'meds_catalog', 'user_settings', 'insights', 'trials'];
+
+test('the signed-in role gets exactly the table rights the app uses, and anon gets none', () => {
+  assert.match(lower, /grant select, insert, update, delete on entries, meds_catalog, user_settings, insights, trials to authenticated;/);
+  assert.match(lower, /revoke all on ai_usage from anon, authenticated;/);
+  assert.match(lower, /revoke all on entries, meds_catalog, user_settings, insights, trials from anon;/);
+  assert.doesNotMatch(lower, /\bgrant\b[^;]*\bto\b[^;]*\banon\b/);
+  const grants = lower.match(/\bgrant\b[^;]*\bon\b[^;]*;/g).join(' ');
+  assert.doesNotMatch(grants.replace(/grant execute[^;]*;/, ''), /ai_usage/);
+});
+
+test('table rights come after every table they name', () => {
+  const grant = lower.indexOf('grant select, insert, update, delete');
+  for (const table of [...APP_TABLES, 'ai_usage']) {
+    assert.ok(lower.indexOf(`create table if not exists ${table}`) < grant, table);
+  }
+  assert.ok(lower.indexOf('create table if not exists ai_usage') < lower.indexOf('revoke all on ai_usage'));
+});
+
+test('consume_ai_quota cannot be misled by a temporary schema', () => {
+  assert.match(lower, /set search_path = public, pg_temp\n/);
+});
+
+test('deleting an account deletes its rows from every table', () => {
+  for (const table of ['ai_usage', 'user_settings', 'insights', 'trials']) {
+    const create = lower.match(new RegExp(`create table if not exists ${table} \\([\\s\\S]*?\\n\\);`))[0];
+    assert.match(create, /references auth\.users on delete cascade/, table);
+  }
+});
+
+test('tables that already exist are moved to cascading foreign keys, and a re-run changes nothing', () => {
+  const block = lower.match(/do \$\$[\s\S]*?\$\$;/)[0];
+  for (const table of [...APP_TABLES, 'ai_usage']) assert.match(block, new RegExp(`'${table}'`), table);
+  assert.match(block, /confdeltype <> 'c'/);
+  assert.match(block, /drop constraint %i/);
+  assert.match(block, /add constraint %i foreign key \(user_id\) references auth\.users on delete cascade/);
+  assert.ok(lower.indexOf('do $$') > lower.indexOf('create table if not exists trials'));
+});

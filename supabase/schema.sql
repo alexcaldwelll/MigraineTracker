@@ -42,7 +42,7 @@ create policy "Users manage their own meds catalog"
 -- Per-user, per-day AI usage counters. RLS is on with no policies, so clients
 -- cannot read or write it directly; only consume_ai_quota (security definer) can.
 create table if not exists ai_usage (
-  user_id uuid references auth.users not null,
+  user_id uuid references auth.users on delete cascade not null,
   day date not null,
   action text not null,
   count int not null default 0,
@@ -57,7 +57,7 @@ create or replace function consume_ai_quota(p_action text)
 returns boolean
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
   v_uid uuid := auth.uid();
@@ -95,7 +95,7 @@ grant execute on function consume_ai_quota(text) to authenticated;
 
 -- Per-user settings (one row per user)
 create table if not exists user_settings (
-  user_id uuid primary key default auth.uid() references auth.users,
+  user_id uuid primary key default auth.uid() references auth.users on delete cascade,
   ai_notice_seen_at timestamptz,
   password_set_at timestamptz
 );
@@ -110,7 +110,7 @@ create policy "Users manage their own settings"
 
 -- The latest Insights result, one row per person, so it reloads with no AI call
 create table if not exists insights (
-  user_id uuid primary key default auth.uid() references auth.users,
+  user_id uuid primary key default auth.uid() references auth.users on delete cascade,
   result jsonb not null,
   created_at timestamptz not null default now()
 );
@@ -126,7 +126,7 @@ create policy "Users manage their own insights"
 -- Tracked trials: one suggestion tried for a set period, then reviewed.
 create table if not exists trials (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null default auth.uid() references auth.users,
+  user_id uuid not null default auth.uid() references auth.users on delete cascade,
   suggestion jsonb not null,
   start_date date not null,
   end_date date not null,
@@ -144,3 +144,32 @@ create policy "Users manage their own trials"
   on trials for all
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
+
+-- Deleting an account deletes its rows. "if not exists" above skips a table that
+-- is already there, so older tables are changed here. Only a constraint
+-- that does not cascade yet is touched, so a re-run changes nothing.
+do $$
+declare
+  t text;
+  fk name;
+begin
+  foreach t in array array['entries', 'meds_catalog', 'ai_usage', 'user_settings', 'insights', 'trials'] loop
+    for fk in
+      select conname from pg_constraint
+      where conrelid = format('public.%I', t)::regclass
+        and confrelid = 'auth.users'::regclass
+        and contype = 'f'
+        and confdeltype <> 'c'
+    loop
+      execute format('alter table public.%I drop constraint %I', t, fk);
+      execute format('alter table public.%I add constraint %I foreign key (user_id) references auth.users on delete cascade', t, fk);
+    end loop;
+  end loop;
+end $$;
+
+-- New tables are unreachable through the Data API without explicit grants.
+-- Row-level security still limits the signed-in role to its own rows. anon gets
+-- nothing, and ai_usage is reached only through consume_ai_quota.
+revoke all on entries, meds_catalog, user_settings, insights, trials from anon;
+grant select, insert, update, delete on entries, meds_catalog, user_settings, insights, trials to authenticated;
+revoke all on ai_usage from anon, authenticated;
