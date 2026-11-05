@@ -12,7 +12,7 @@ import { LOG_CHAR_CAP, LOG_DAYS, analyzeContent, formatLog } from "../netlify/fu
 import { buildStats, mentionsMedicine, ruleSuggestion } from "../public/js/patterns.js";
 import { foodNames } from "../public/js/food-items.js";
 import { setBackend } from "../public/js/data.js";
-import { freqChart, renderInsight, requestInsight, rollUpDays, showSavedInsight } from "../public/js/insights.js";
+import { freqChart, renderInsight, requestInsight, rollUpDays, showSavedInsight, startFrom, stopTrial } from "../public/js/insights.js";
 
 const insight = (tryNext = {}, rest = {}) => ({
   try_next: {
@@ -447,14 +447,15 @@ test("the food chart counts items rather than whole lines", () => {
 function fakeDom() {
   const made = [], innerHtml = [];
   class El {
-    kids = []; text = ""; className = "";
+    kids = []; text = ""; className = ""; listeners = {};
     constructor(tag) { this.tag = tag; made.push(tag); this.ownerDocument = doc; }
     set textContent(value) { this.text = String(value); this.kids = []; }
     get textContent() { return this.text + this.kids.map((k) => k.textContent).join(" "); }
     set innerHTML(value) { innerHtml.push(value); }
     append(...kids) { this.kids.push(...kids); }
     replaceChildren(...kids) { this.kids = kids; }
-    addEventListener() {}
+    addEventListener(type, fn) { this.listeners[type] = fn; }
+    click() { return this.listeners.click(); }
   }
   const doc = { createElement: (tag) => new El(tag) };
   const container = new El("div");
@@ -596,4 +597,60 @@ test("a failed read after a failed network call is an error, not a made-up empty
   t.mock.method(console, "error", () => {});
   fakeBackend({ ai: async () => { throw new Error("offline"); }, listAll: async () => { throw new Error("offline"); } });
   await assert.rejects(requestInsight("2026-06-01"));
+});
+
+// ---------- Start this ----------
+
+const findNode = (node, match) => (match(node) ? node : node.kids.map((kid) => findNode(kid, match)).find(Boolean));
+const startButton = (root) => findNode(root, (node) => node.tag === "button" && node.text === "Start this");
+
+function trialBackend(rows = []) {
+  const backend = {
+    saved: [],
+    listTrials: async () => rows.map((row) => ({ ...row })),
+    saveTrial: async (row) => {
+      backend.saved.push(row);
+      const stored = { id: row.id ?? `t${backend.saved.length}`, ...row };
+      rows = [stored, ...rows.filter((old) => old.id !== stored.id)];
+      return stored;
+    },
+  };
+  setBackend(backend);
+  return backend;
+}
+
+test("clicking Start this starts a trial from the suggestion on screen", async () => {
+  const backend = trialBackend();
+  const { container } = fakeDom();
+  renderInsight(fullInsight(), container, { onStart: startFrom });
+  await startButton(container).click();
+  assert.equal(backend.saved.length, 1);
+  assert.equal(backend.saved[0].status, "active");
+  assert.equal(backend.saved[0].suggestion.title, "plain title");
+  assert.equal(findNode(container, (node) => node.className === "warn-box").hidden, true);
+});
+
+test("a failed start shows the error and leaves the button usable", async (t) => {
+  t.mock.method(console, "error", () => {});
+  trialBackend([{ id: "t0", status: "active" }]);
+  const { container } = fakeDom();
+  renderInsight(fullInsight(), container, { onStart: startFrom });
+  const button = startButton(container);
+  await button.click();
+  const box = findNode(container, (node) => node.className === "warn-box");
+  assert.equal(box.hidden, false);
+  assert.match(box.textContent, /already running/);
+  assert.equal(button.disabled, false);
+});
+
+test("Start this works again after the trial it started is stopped", async () => {
+  const backend = trialBackend();
+  const { container } = fakeDom();
+  renderInsight(fullInsight(), container, { onStart: startFrom });
+  const button = startButton(container);
+  await button.click();
+  await stopTrial({ id: "t1", ...backend.saved[0] });
+  assert.equal(button.disabled, false);
+  await button.click();
+  assert.equal(backend.saved.filter((row) => row.status === "active").length, 2);
 });

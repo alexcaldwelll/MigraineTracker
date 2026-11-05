@@ -121,7 +121,7 @@ export function renderInsight(result, container, { onStart } = {}){
     make('p', 'insight-text', next.action),
     make('p', 'insight-why', next.why),
     meta)];
-  if(onStart) sections[0].append(startControl(make, onStart));
+  if(onStart) sections[0].append(startControl(make, ()=> onStart(result)));
 
   if(result.also_watching?.length){
     sections.push(section('Also watching', list(result.also_watching, (li, { item, evidence })=>{
@@ -275,7 +275,8 @@ function startControl(make, onStart){
     }catch(error){
       console.error(error);
       showError(box, 'Could not start the trial: ' + (error.message || error) + ' Nothing was lost.', go);
-      btn.disabled = false;
+    }finally{
+      btn.disabled = false;   // a stopped trial brings this same button back into view
     }
   };
   btn.addEventListener('click', go);
