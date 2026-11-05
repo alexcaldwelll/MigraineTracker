@@ -161,3 +161,8 @@ button.food-item:hover{border-color:var(--accent);}
   .food-item{ border:none; padding:2px 0; min-height:0; background:none; }
   .pill{ border:1px solid var(--line-strong); background:none; color:var(--ink); }
 }
+
+/* Tracked trials */
+.trial-card{font-size:14px;font-weight:600;color:var(--accent-dark);background:var(--accent-tint);border-color:var(--line);margin-top:12px;}
+.trial-active,.trial-review{margin-bottom:14px;padding:13px 14px;border:1px solid var(--line);border-radius:var(--r-nest);background:var(--field);}
+.trial-start{margin-top:8px;}

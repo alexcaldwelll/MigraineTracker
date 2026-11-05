@@ -5,7 +5,7 @@ import { backfillFood, canSendToAi, retryPendingSplits } from './food.js';
 import { initForms } from './forms.js';
 import { renderHistory, initHistory } from './history.js';
 import { renderAnalysis, initInsights } from './insights.js';
-import { refreshHeadache, renderToday, initToday } from './today.js';
+import { refreshHeadache, refreshTrialCard, renderToday, initToday } from './today.js';
 import { $, $$, activateTab } from './ui.js';
 
 const SUPABASE_URL = 'https://piiahxbeqsrzagjximoh.supabase.co';
@@ -20,6 +20,7 @@ function initApp(){
   appInitialized = true;
   renderToday();
   refreshHeadache();
+  refreshTrialCard();
   showAiNoticeIfNeeded();
   retryPending();
 }
@@ -68,6 +69,7 @@ async function showAiNoticeIfNeeded(){
 $$('nav button').forEach(btn=>{
   btn.addEventListener('click', ()=>{
     activateTab(btn.dataset.tab);
+    if(btn.dataset.tab==='today') refreshTrialCard();
     if(btn.dataset.tab==='history') renderHistory();
     if(btn.dataset.tab==='insights') renderAnalysis();
   });

@@ -50,6 +50,20 @@ test('insights holds one row per person with an own-row policy', () => {
   assert.match(lower, /create policy "users manage their own insights"\s+on insights for all\s+using \(auth\.uid\(\) = user_id\)\s+with check \(auth\.uid\(\) = user_id\)/);
 });
 
+test('trials has an own-row policy and defaults', () => {
+  assert.match(lower, /create table if not exists trials/);
+  assert.match(lower, /id uuid primary key default gen_random_uuid\(\)/);
+  assert.match(lower, /user_id uuid not null default auth\.uid\(\) references auth\.users/);
+  assert.match(lower, /suggestion jsonb not null/);
+  assert.match(lower, /start_date date not null/);
+  assert.match(lower, /end_date date not null/);
+  assert.match(lower, /status text not null default 'active' check \(status in \('active', 'completed', 'stopped'\)\)/);
+  assert.match(lower, /result jsonb,/);
+  assert.match(lower, /created_at timestamptz not null default now\(\)/);
+  assert.match(lower, /alter table trials enable row level security/);
+  assert.match(lower, /create policy "users manage their own trials"\s+on trials for all\s+using \(auth\.uid\(\) = user_id\)\s+with check \(auth\.uid\(\) = user_id\)/);
+});
+
 test('every statement is safe to re-run', () => {
   assert.doesNotMatch(lower, /create table (?!if not exists)/);
   assert.doesNotMatch(lower, /create index (?!if not exists)/);

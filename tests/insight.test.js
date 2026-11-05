@@ -454,6 +454,7 @@ function fakeDom() {
     set innerHTML(value) { innerHtml.push(value); }
     append(...kids) { this.kids.push(...kids); }
     replaceChildren(...kids) { this.kids = kids; }
+    addEventListener() {}
   }
   const doc = { createElement: (tag) => new El(tag) };
   const container = new El("div");
@@ -498,6 +499,14 @@ test("renderInsight replaces what was there and leaves out empty sections", () =
   assert.equal(text.includes("Also watching"), false);
   assert.equal(text.includes("doctor"), false);
   assert.equal(text.includes("null"), false);
+});
+
+test("renderInsight offers Start this only when given a way to start", () => {
+  const without = fakeDom(), withStart = fakeDom();
+  renderInsight(fullInsight(), without.container);
+  renderInsight({ ...fullInsight(), source: "rules" }, withStart.container, { onStart: () => {} });
+  assert.doesNotMatch(without.container.textContent, /Start this/);
+  assert.match(withStart.container.textContent, /Start this/);
 });
 
 test("renderInsight says when a result came from the app's own counts", () => {

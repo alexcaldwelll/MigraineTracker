@@ -2,7 +2,7 @@ import { bearerToken, getUser } from "./lib/auth.js";
 import { AiUnavailable, callClaude } from "./lib/anthropic.js";
 import { MODELS } from "./lib/config.js";
 import { FOOD_SCHEMA, validateItems } from "./lib/food.js";
-import { groupByDate, loadEntries, loadMeds } from "./lib/entries.js";
+import { groupByDate, loadEntries, loadMeds, loadTrials } from "./lib/entries.js";
 import { INSIGHT_SCHEMA, fitToStats, promptFactors, validateInsight } from "./lib/insight.js";
 import { ANALYZE_SYSTEM, SCREENSHOTS, SPLIT_FOOD_SYSTEM, analyzeContent, formatLog } from "./lib/prompts.js";
 import { consumeQuota } from "./lib/quota.js";
@@ -57,7 +57,7 @@ export function createHandler({ getUser, consumeQuota, handlers }) {
   };
 }
 
-// Until trials exist there are none to load.
+// With no loader there are no past trials.
 const noTrials = async () => [];
 
 export function createActions({ callClaude, loadEntries, loadMeds, loadTrials = noTrials }) {
@@ -136,7 +136,7 @@ export function createActions({ callClaude, loadEntries, loadMeds, loadTrials = 
 const handle = createHandler({
   getUser,
   consumeQuota,
-  handlers: createActions({ callClaude, loadEntries, loadMeds, loadTrials: noTrials }),
+  handlers: createActions({ callClaude, loadEntries, loadMeds, loadTrials }),
 });
 
 export default async (req) => handle(req);

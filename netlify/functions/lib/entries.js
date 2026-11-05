@@ -23,6 +23,21 @@ export async function loadMeds(token) {
   return res.json();
 }
 
+// The signed-in user's past trials, newest first, for the analysis prompt. Only
+// the fields it needs. Throws on failure, like the other loads.
+export async function loadTrials(token) {
+  const query = new URLSearchParams({
+    select: "suggestion,start_date,end_date,status,result",
+    order: "created_at.desc",
+    limit: "50",
+  });
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/trials?${query}`, {
+    headers: supabaseHeaders(token),
+  });
+  if (!res.ok) throw new Error("Could not load trials");
+  return res.json();
+}
+
 // Loads the signed-in user's entries, oldest first. Row-level security limits
 // the rows to their own. Sorting ends on id so pages cannot overlap or skip.
 export async function loadEntries(token) {

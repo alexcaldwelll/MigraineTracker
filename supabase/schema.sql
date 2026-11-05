@@ -122,3 +122,25 @@ create policy "Users manage their own insights"
   on insights for all
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
+
+-- Tracked trials: one suggestion tried for a set period, then reviewed.
+create table if not exists trials (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users,
+  suggestion jsonb not null,
+  start_date date not null,
+  end_date date not null,
+  status text not null default 'active' check (status in ('active', 'completed', 'stopped')),
+  result jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists trials_user_created_idx on trials (user_id, created_at desc);
+
+alter table trials enable row level security;
+
+drop policy if exists "Users manage their own trials" on trials;
+create policy "Users manage their own trials"
+  on trials for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);

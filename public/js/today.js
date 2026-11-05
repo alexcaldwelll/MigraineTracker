@@ -5,6 +5,8 @@ import { dayTitle, localDate, shiftDate, shortDate } from './dates.js';
 import { dayTotals, formatAmount, itemAmount, splitEntry, triggerLabel, triggerTags } from './food.js';
 import { commitDraft, logQuickMed, openEditSheet, openItemSheet, openSheet, submitEntry } from './forms.js';
 import { endHeadache, findOpenHeadache, isStale, startHeadache } from './headache.js';
+import { settleTrials } from './insights.js';
+import { activeTrial, trialDay, trialLabel } from './trials.js';
 import { $, $$, escapeHtml, svgIcon, xIcon, activateTab, getSingle } from './ui.js';
 
 let onEntryDeleted = ()=>{};
@@ -202,6 +204,25 @@ function renderEntryList(entries, date){
   wireEntryRows('#todayList', date);
   renderFoodTotals(entries);
 }
+// A small card while a trial runs: "Sleep trial: day 6 of 14". Failures only
+// log, because this card is never worth blocking the day for.
+export async function refreshTrialCard(){
+  const card = $('#trialCard');
+  try{
+    const { trials } = await settleTrials(localDate());
+    const trial = activeTrial(trials);
+    if(!trial){ card.hidden = true; card.textContent = ''; return; }
+    const today = localDate();
+    const { day, total } = trialDay(trial, today);
+    card.textContent = today > trial.end_date
+      ? `${trialLabel(trial)} finished. See Insights for the review.`
+      : `${trialLabel(trial)}: day ${day} of ${total}`;
+    card.hidden = false;
+  }catch(error){
+    console.error(error);
+  }
+}
+
 export async function renderToday(){
   const render = ++renderCount;
   const date = $('#entryDate').value;

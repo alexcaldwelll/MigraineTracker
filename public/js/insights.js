@@ -6,11 +6,13 @@ import { foodNames } from './food-items.js';
 import { $, escapeHtml } from './ui.js';
 import { daysWithHeadacheDates, headacheDaySet } from './headache.js';
 import { buildStats, headacheDaysByCycleDay, ruleSuggestion } from './patterns.js';
+import { activeTrial, dueTrial, reviewTrial, startTrial, trialDay, trialLabel } from './trials.js';
 
 let analyzing = false;
 
 export async function renderAnalysis(){
-  showSavedInsight($('#aiOutput'));
+  await loadTrialState();
+  if(!activeTrial(trials)) showSavedInsight($('#aiOutput'));
   const days = await emptyOnError(data().listAll());
   const n = days.length;
   $('#progressNote').innerHTML = n===0
@@ -92,7 +94,7 @@ export function freqChart(subset, extractor, color){
 }
 
 // Every field is AI or logged text, so all of it goes in through textContent.
-export function renderInsight(result, container){
+export function renderInsight(result, container, { onStart } = {}){
   const doc = container.ownerDocument;
   const make = (tag, className, text)=>{
     const node = doc.createElement(tag);
@@ -119,6 +121,7 @@ export function renderInsight(result, container){
     make('p', 'insight-text', next.action),
     make('p', 'insight-why', next.why),
     meta)];
+  if(onStart) sections[0].append(startControl(make, onStart));
 
   if(result.also_watching?.length){
     sections.push(section('Also watching', list(result.also_watching, (li, { item, evidence })=>{
@@ -145,7 +148,7 @@ export function renderInsight(result, container){
 export async function showSavedInsight(container){
   try{
     const saved = await data().getInsight();
-    if(saved?.result?.try_next && !analyzing) renderInsight(saved.result, container);
+    if(saved?.result?.try_next && !analyzing) renderInsight(saved.result, container, { onStart: startFrom });
   }catch(error){
     console.error(error);
   }
@@ -183,6 +186,209 @@ export async function requestInsight(today = localDate()){
   return insight;
 }
 
+// ---------- Tracked trials ----------
+let trials = [];            // newest first, as last read
+let trialsError = null;     // why the last read or review save failed
+let settling = null;        // one review save at a time, whoever asks
+const keptIds = new Set();  // reviews the person has dismissed
+
+function loadKept(){
+  try{ JSON.parse(localStorage.getItem('keptTrials') || '[]').forEach(id=> keptIds.add(id)); }catch(error){ /* nothing remembered */ }
+}
+function rememberKept(id){
+  keptIds.add(id);
+  try{ localStorage.setItem('keptTrials', JSON.stringify([...keptIds])); }catch(error){ /* kept for this visit only */ }
+}
+
+const swap = (list, row)=> list.map(t=> t.id === row.id ? row : t);
+
+async function settle(today){
+  let list = await data().listTrials();
+  const ended = list.filter(t=> t.status === 'active' && today > t.end_date);
+  if(ended.length === 0) return { trials: list, error: null };
+  try{
+    const days = await data().listAll();
+    for(const trial of ended){
+      const saved = await data().saveTrial({ ...trial, status: 'completed', result: reviewTrial(trial, days) });
+      list = swap(list, saved);
+    }
+    return { trials: list, error: null };
+  }catch(error){
+    console.error(error);
+    return { trials: list, error };
+  }
+}
+
+// Reads the trials and saves the review of any that ended, once, with one
+// write each. Rejects only when the trials cannot be read.
+export function settleTrials(today = localDate()){
+  if(!settling) settling = settle(today).finally(()=>{ settling = null; });
+  return settling;
+}
+
+async function loadTrialState(){
+  loadKept();
+  try{
+    ({ trials, error: trialsError } = await settleTrials());
+  }catch(error){
+    console.error(error);
+    trials = []; trialsError = error;
+  }
+  renderTrialPanel();
+}
+
+function h(tag, className, text, doc = document){
+  const node = doc.createElement(tag);
+  if(className) node.className = className;
+  if(text != null) node.textContent = text;
+  return node;
+}
+
+// A button whose save can fail: the error and Retry stay on screen and the
+// state is kept.
+function errorBox(doc = document){
+  const box = h('div', 'warn-box', null, doc);
+  box.setAttribute?.('role', 'alert');
+  box.hidden = true;
+  return box;
+}
+function showError(box, message, retry){
+  const doc = box.ownerDocument;
+  const retryBtn = h('button', 'btn small', 'Retry', doc);
+  retryBtn.type = 'button';
+  retryBtn.addEventListener('click', retry);
+  box.replaceChildren(h('div', null, message, doc), retryBtn);
+  box.hidden = false;
+}
+
+function startControl(make, onStart){
+  const wrap = make('div', 'trial-start');
+  const btn = make('button', 'btn small', 'Start this');
+  btn.type = 'button';
+  const box = errorBox(wrap.ownerDocument);
+  const go = async ()=>{
+    btn.disabled = true; box.hidden = true;
+    try{
+      await onStart();
+    }catch(error){
+      console.error(error);
+      showError(box, 'Could not start the trial: ' + (error.message || error) + ' Nothing was lost.', go);
+      btn.disabled = false;
+    }
+  };
+  btn.addEventListener('click', go);
+  wrap.append(btn, box);
+  return wrap;
+}
+
+// Reads the trials fresh, so a trial started on another device is seen.
+async function startFrom(result){
+  const today = localDate();
+  const fresh = await data().listTrials();
+  const trial = startTrial(result.try_next, today, fresh);
+  if(!trial) throw new Error('A trial is already running.');
+  const saved = await data().saveTrial(trial);
+  trials = [saved, ...fresh];
+  renderTrialPanel();
+}
+
+const perWeekText = value => value == null ? 'not enough logged' : `${value} a week`;
+
+function reviewCard(trial){
+  const card = h('div', 'trial-review');
+  card.append(h('h3', 'insight-heading', `${trialLabel(trial)} finished`),
+    h('p', 'insight-title', trial.suggestion.title),
+    h('p', 'insight-text', trial.result.summary));
+  const keep = h('button', 'btn small', 'Keep');
+  keep.type = 'button';
+  keep.addEventListener('click', ()=>{ rememberKept(trial.id); renderTrialPanel(); });
+  card.append(keep, h('p', 'analysis-note', 'Keep leaves things as they are. Or analyze again for the next suggestion.'));
+  return card;
+}
+
+function activeCard(trial, today){
+  const card = h('div', 'trial-active');
+  const { day, total } = trialDay(trial, today);
+  card.append(h('h3', 'insight-heading', `${trialLabel(trial)}: day ${day} of ${total}`),
+    h('p', 'insight-title', trial.suggestion.title));
+  if(trial.suggestion.action) card.append(h('p', 'insight-text', trial.suggestion.action));
+  if(today > trial.end_date){
+    card.append(h('p', 'analysis-note', 'This trial has ended. Its review could not be saved yet.'));
+  }
+  const stop = h('button', 'btn small ghost', 'Stop this trial');
+  stop.type = 'button';
+  const box = errorBox();
+  let armed = false;
+  const doStop = async ()=>{
+    stop.disabled = true; box.hidden = true;
+    try{
+      const saved = await data().saveTrial({ ...trial, status: 'stopped' });
+      trials = swap(trials, saved);
+      renderTrialPanel();
+    }catch(error){
+      console.error(error);
+      stop.disabled = false;
+      showError(box, 'Could not stop the trial: ' + (error.message || error) + ' It is still running.', doStop);
+    }
+  };
+  const cancel = h('button', 'link-btn', 'Keep going');
+  cancel.type = 'button';
+  cancel.hidden = true;
+  stop.addEventListener('click', ()=>{
+    if(!armed){
+      armed = true; stop.textContent = 'Tap again to stop'; cancel.hidden = false;
+      return;
+    }
+    doStop();
+  });
+  cancel.addEventListener('click', ()=>{ armed = false; stop.textContent = 'Stop this trial'; cancel.hidden = true; });
+  card.append(stop, cancel, box);
+  return card;
+}
+
+function pastList(past){
+  const list = h('ul', 'insight-list');
+  past.forEach(trial=>{
+    const li = h('li', 'insight-item');
+    li.append(h('b', 'insight-item-name', trial.suggestion.title));
+    const range = `${trial.start_date} to ${trial.end_date}`;
+    const outcome = trial.status === 'stopped' ? 'Stopped early.'
+      : trial.result ? `Before: ${perWeekText(trial.result.before)}. During: ${perWeekText(trial.result.during)}.`
+      : 'Finished.';
+    li.append(h('span', 'insight-text', `${range}. ${outcome}`));
+    list.append(li);
+  });
+  return list;
+}
+
+function renderTrialPanel(){
+  const panel = $('#trialPanel');
+  if(!panel) return;
+  const today = localDate();
+  const active = activeTrial(trials);
+  const newest = trials[0];
+  const review = newest && newest.status === 'completed' && newest.result && !keptIds.has(newest.id) ? newest : null;
+  const nodes = [];
+  if(trialsError && !active && !review && trials.length === 0){
+    const box = errorBox();
+    showError(box, 'Could not load your trials: ' + (trialsError.message || trialsError), ()=>{ loadTrialState(); });
+    nodes.push(box);
+  }
+  if(active) nodes.push(activeCard(active, today));
+  else if(review) nodes.push(reviewCard(review));
+  if(active && trialsError){
+    const box = errorBox();
+    showError(box, 'The finished trial could not be saved: ' + (trialsError.message || trialsError), ()=>{ loadTrialState(); });
+    nodes.push(box);
+  }
+  panel.replaceChildren(...nodes);
+  $('#aiAnalyzeBtn').hidden = Boolean(active);
+  $('#aiOutput').hidden = Boolean(active);
+  const past = trials.filter(t=> t.status !== 'active');
+  $('#pastTrialsCard').hidden = past.length === 0;
+  $('#pastTrials').replaceChildren(...(past.length ? [pastList(past)] : []));
+}
+
 export function initInsights(){
   $('#aiAnalyzeBtn').addEventListener('click', async ()=>{
     const out = $('#aiOutput');
@@ -191,7 +397,7 @@ export function initInsights(){
     btn.disabled = true; btn.textContent = 'Analyzing...';
     out.textContent = '';
     try{
-      renderInsight(await requestInsight(), out);
+      renderInsight(await requestInsight(), out, { onStart: startFrom });
     }catch(e){
       console.error(e);
       out.textContent = 'Analysis failed: ' + (e.message || e);

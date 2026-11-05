@@ -114,6 +114,8 @@
       <button type="button" class="btn small" id="headacheEndAtBtn">Save end time</button>
     </div>
 
+    <div class="card trial-card" id="trialCard" hidden></div>
+
     <div class="tiles">
       <button type="button" class="tile" data-sheet="food"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><use href="#icon-food"></use></svg><span class="tile-name">Food</span><span class="tile-status"></span></button>
       <button type="button" class="tile" data-sheet="sleep"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><use href="#icon-sleep"></use></svg><span class="tile-name">Sleep</span><span class="tile-status"></span></button>
@@ -141,9 +143,11 @@
     <div class="card">
       <h2>Your next step</h2>
       <div class="analysis-note" style="margin-bottom:10px;">Sends your logged data (not screenshots) to Claude to look across food, sleep, meds, cycle timing, and early-warning signs and suggest one thing to try. This is a starting point for a conversation with your doctor, not a diagnosis.</div>
+      <div id="trialPanel"></div>
       <button class="btn" id="aiAnalyzeBtn">Analyze my data</button>
       <div id="aiOutput" class="ai-output" style="margin-top:14px;"></div>
     </div>
+    <div class="card" id="pastTrialsCard" hidden><h2>Past trials</h2><div id="pastTrials"></div></div>
     <div class="card"><h2>Sleep hours vs. headache days</h2><div id="sleepChart"></div></div>
     <div class="card"><h2>Headaches by cycle day (relative to period start)</h2><div id="cycleChart"></div></div>
     <div class="card"><h2>Foods logged on headache days</h2><div id="foodChart"></div>
