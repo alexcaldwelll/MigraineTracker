@@ -185,9 +185,9 @@ test("labels come from the factor key", () => {
 
 test("an insight older than the newest trial is out of date, however each date is written", () => {
   const saved = { created_at: "2026-03-10T09:00:00.000Z" };
-  const later = { created_at: "2026-03-10T09:00:00.123456+00:00" };
+  const later = { status: "completed", created_at: "2026-03-10T09:00:00.123456+00:00" };
   assert.equal(insightPredatesTrials(saved, [later]), true);
-  assert.equal(insightPredatesTrials(saved, [{ created_at: "2026-03-10T10:00:00+01:00" }]), false);
+  assert.equal(insightPredatesTrials(saved, [{ status: "completed", created_at: "2026-03-10T10:00:00+01:00" }]), false);
   assert.equal(insightPredatesTrials({ created_at: "2026-03-11T00:00:00Z" }, [later]), false);
   assert.equal(insightPredatesTrials(saved, []), false);
 });
@@ -203,6 +203,18 @@ test("a saved insight from before the newest trial is not shown, and an older sc
   setBackend({ getInsight: async () => ({ created_at: "2026-03-01T00:00:00Z", result: { try_next: NEXT } }) });
   await showSavedInsight(page, [trial({ status: "completed", created_at: "2026-03-02T00:00:00Z" })]);
   assert.deepEqual(page.kids, []);
+});
+
+test("only completed trials count, so stopping one leaves the saved insight in place", async () => {
+  const saved = { created_at: "2026-03-01T00:00:00Z", result: { try_next: NEXT } };
+  const older = trial({ status: "completed", created_at: "2026-02-01T00:00:00Z" });
+  const stopped = trial({ id: "t2", status: "stopped", created_at: "2026-03-02T00:00:00Z" });
+  const running = trial({ id: "t3", status: "active", created_at: "2026-03-03T00:00:00Z" });
+  assert.equal(insightPredatesTrials(saved, [running, stopped, older]), false);
+  const page = fakeInsightPage();
+  setBackend({ getInsight: async () => saved });
+  await showSavedInsight(page, [stopped, older]);
+  assert.ok(page.kids.length > 0);
 });
 
 test("a saved insight from after the newest trial is shown", async () => {

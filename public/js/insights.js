@@ -144,8 +144,8 @@ export function renderInsight(result, container, { onStart } = {}){
   container.replaceChildren(...sections);
 }
 
-// The last result, with no AI call. One from before the newest trial could offer
-// that trial again, so it is left out until the next analysis. A failed read only
+// The last result, with no AI call. One from before the newest completed trial
+// could offer that trial again, so it is left out until the next analysis. A failed read only
 // logs.
 export async function showSavedInsight(container, pastTrials = trials){
   try{

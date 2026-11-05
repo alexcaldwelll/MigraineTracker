@@ -14,11 +14,13 @@ const countOf = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 export const activeTrial = trials => (trials || []).find(t=> t && t.status === 'active') || null;
 
-// True for a saved insight older than the newest trial, so its suggestion may be
-// the one that trial already tested. Compared as times, because the browser and
-// Postgres write dates differently.
+// True for a saved insight older than the newest completed trial, so its
+// suggestion may be the one that trial already tested. A stopped trial proved
+// nothing, so it leaves the insight in place. Compared as times, because the
+// browser and Postgres write dates differently.
 export function insightPredatesTrials(saved, trials){
-  const newest = Math.max(...(trials || []).map(t=> Date.parse(t?.created_at)).filter(Number.isFinite));
+  const completed = (trials || []).filter(t=> t?.status === 'completed');
+  const newest = Math.max(...completed.map(t=> Date.parse(t.created_at)).filter(Number.isFinite));
   return Date.parse(saved?.created_at) < newest;
 }
 
