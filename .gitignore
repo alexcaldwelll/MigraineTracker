@@ -6,3 +6,11 @@
 
 # Brainstorming mockups
 .superpowers/
+
+# Dependencies
+node_modules/
+
+# Local agent tooling
+.claude/
+.agents/
+skills-lock.json
