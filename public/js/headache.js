@@ -70,3 +70,16 @@ export function closedHeadacheTimes(date, time, durationHours){
   }
   return times;
 }
+
+// Every date any headache touches, from days of { date, entries }.
+export function headacheDaySet(days){
+  return new Set(days.flatMap(d=> d.entries.filter(isHeadacheEntry).flatMap(e=> headacheDates({ ...e, date: d.date }))));
+}
+
+// The days, plus an empty day for each headache date that has no entries of
+// its own (Tuesday, for a headache from Monday 22:00 to Tuesday 02:00).
+export function daysWithHeadacheDates(days){
+  const have = new Set(days.map(d=>d.date));
+  const extra = [...headacheDaySet(days)].filter(date=>!have.has(date)).map(date=>({ date, entries: [] }));
+  return [...days, ...extra];
+}

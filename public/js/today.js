@@ -7,11 +7,11 @@ import { endHeadache, findOpenHeadache, isStale, startHeadache } from './headach
 import { $, $$, escapeHtml, svgIcon, xIcon, activateTab, getSingle } from './ui.js';
 
 let onEntryDeleted = ()=>{};
-let renderCount = 0;
+let renderCount = 0;               // only the newest render may draw, when days change quickly
 let allDays = [];                  // every day from listAll, so an open headache from an earlier day is found
 let needsReload = true;            // allDays may be behind the database
 let headacheBusy = false;          // one headache save at a time, so a double tap cannot log two
-let stillGoingDismissed = false;   // "Yes, still going" lasts until the page reloads  // only the newest render may draw, when days change quickly
+let stillGoingDismissed = false;   // "Yes, still going" is remembered until the page reloads, so the card stops asking
 
 // ---------- Tile status ----------
 const sameName = name => String(name ?? '').trim().toLowerCase();

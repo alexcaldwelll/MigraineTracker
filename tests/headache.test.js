@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  findOpenHeadache, startHeadache, endHeadache, isStale, headacheDates, isHeadacheEntry, closedHeadacheTimes,
+  findOpenHeadache, startHeadache, endHeadache, isStale, headacheDates, isHeadacheEntry, closedHeadacheTimes, daysWithHeadacheDates, headacheDaySet,
 } from "../public/js/headache.js";
 
 const at = (s) => new Date(s); // local time, no zone suffix
@@ -85,10 +85,19 @@ test("closedHeadacheTimes gives start_at, and end_at only when a duration is giv
   assert.equal(closedHeadacheTimes("2026-11-02", "22:00", null).end_at, undefined);
 });
 
+test("a midnight-crossing headache makes an empty day for a date with no entries", () => {
+  const ended = endHeadache(open, at("2026-11-03T02:00:00"));
+  const input = [{ date: "2026-11-02", entries: [ended] }];
+  assert.deepEqual([...headacheDaySet(input)], ["2026-11-02", "2026-11-03"]);
+  assert.deepEqual(daysWithHeadacheDates(input), [...input, { date: "2026-11-03", entries: [] }]);
+  const covered = [...input, { date: "2026-11-03", entries: [{ type: "food" }] }];
+  assert.equal(daysWithHeadacheDates(covered).length, 2, "no duplicate for a day already present");
+});
+
 test("insights counts headache days through isHeadacheEntry, not severity", async () => {
   const { readFileSync } = await import("node:fs");
   const src = readFileSync(new URL("../public/js/insights.js", import.meta.url), "utf8");
-  assert.match(src, /isHeadacheEntry/);
+  assert.match(src, /daysWithHeadacheDates/);
   assert.doesNotMatch(src, /severity\s*!=\s*null/);
 });
 

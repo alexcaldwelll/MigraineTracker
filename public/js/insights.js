@@ -1,7 +1,7 @@
 // The Analysis tab: progress, the medication-overuse flag, charts and AI analysis.
 import { data, emptyOnError } from './data.js';
 import { $, escapeHtml } from './ui.js';
-import { headacheDates, isHeadacheEntry } from './headache.js';
+import { daysWithHeadacheDates, headacheDaySet } from './headache.js';
 
 function findCycleDays(days){
   // Returns sorted list of period start dates (first day with any 'period' entry after a gap of 20+ days from the previous one)
@@ -44,8 +44,8 @@ export async function renderAnalysis(){
   } else { mohCard.style.display='none'; }
 
   // Every date a headache touches is a headache day, with or without a severity.
-  const headacheDays = new Set(days.flatMap(d=> d.entries.filter(isHeadacheEntry).flatMap(e=> headacheDates({ ...e, date: d.date }))));
-  const dayRollups = days.map(d=>{
+  const headacheDays = headacheDaySet(days);
+  const dayRollups = daysWithHeadacheDates(days).map(d=>{
     const sleepEntry = d.entries.find(e=>e.type==='sleep' && e.hours!=null);
     const foods = d.entries.filter(e=>e.type==='food').map(e=>e.text.toLowerCase().trim());
     const meds = d.entries.filter(e=>e.type==='meds').map(e=>e.name.toLowerCase().trim());
