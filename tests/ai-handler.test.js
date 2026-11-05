@@ -293,6 +293,9 @@ test("analyze loads entries with the user's token and returns { text }", async (
   assert.equal(req.effort, "medium");
   assert.equal(req.schema, undefined);
   assert.match(req.system, /prodrome/);
+  assert.ok(req.system.includes("Never suggest starting, stopping or changing medication."));
+  assert.ok(req.system.includes("Never suggest removing a whole macronutrient."));
+  assert.match(req.system, /medication-overuse headache risk\), as something to talk to their doctor about/);
   assert.equal(
     req.content,
     'LOG DATA:\n2026-01-01: [food 08:00 {"text":"toast"}] [note {"text":"tired"}]\n2026-01-02: [sleep 12:00 {"hours":7}]',
