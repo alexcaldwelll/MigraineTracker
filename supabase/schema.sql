@@ -107,3 +107,18 @@ create policy "Users manage their own settings"
   on user_settings for all
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
+
+-- The latest Insights result, one row per person, so it reloads with no AI call
+create table if not exists insights (
+  user_id uuid primary key default auth.uid() references auth.users,
+  result jsonb not null,
+  created_at timestamptz not null default now()
+);
+
+alter table insights enable row level security;
+
+drop policy if exists "Users manage their own insights" on insights;
+create policy "Users manage their own insights"
+  on insights for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);

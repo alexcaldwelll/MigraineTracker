@@ -41,6 +41,15 @@ test('user_settings has an own-row policy', () => {
   assert.match(lower, /create policy "users manage their own settings"\s+on user_settings for all\s+using \(auth\.uid\(\) = user_id\)\s+with check \(auth\.uid\(\) = user_id\)/);
 });
 
+test('insights holds one row per person with an own-row policy', () => {
+  assert.match(lower, /create table if not exists insights/);
+  assert.match(lower, /user_id uuid primary key default auth\.uid\(\)/);
+  assert.match(lower, /result jsonb not null/);
+  assert.match(lower, /created_at timestamptz not null default now\(\)/);
+  assert.match(lower, /alter table insights enable row level security/);
+  assert.match(lower, /create policy "users manage their own insights"\s+on insights for all\s+using \(auth\.uid\(\) = user_id\)\s+with check \(auth\.uid\(\) = user_id\)/);
+});
+
 test('every statement is safe to re-run', () => {
   assert.doesNotMatch(lower, /create table (?!if not exists)/);
   assert.doesNotMatch(lower, /create index (?!if not exists)/);

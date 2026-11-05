@@ -42,12 +42,19 @@ test("unknown actions return 400, including Object.prototype names", () => {
   }
 });
 
-test("analyze accepts any body and keeps nothing from the payload", () => {
-  assert.deepEqual(validateRequest({ action: "analyze", payload: { entries: ["x"] } }), {
+test("analyze keeps only a real date from the payload", () => {
+  assert.deepEqual(validateRequest({ action: "analyze", payload: { today: "2026-11-05", entries: ["x"] } }), {
     action: "analyze",
-    payload: {},
+    payload: { today: "2026-11-05" },
   });
-  assert.deepEqual(validateRequest({ action: "analyze" }), { action: "analyze", payload: {} });
+  assert.equal(validateRequest({ action: "analyze", payload: { today: "2028-02-29" } }).payload.today, "2028-02-29");
+});
+
+test("analyze refuses anything but YYYY-MM-DD", () => {
+  for (const today of [undefined, null, 20261105, "", "today", "2026-11-5", "2026-13-01", "2026-02-30", "2026-11-05T00:00:00Z", " 2026-11-05", "2026-11-05\n"]) {
+    expectStatus({ action: "analyze", payload: { today } }, 400);
+  }
+  expectStatus({ action: "analyze" }, 400);
 });
 
 for (const action of ["split_food", "backfill_food"]) {

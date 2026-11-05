@@ -4,6 +4,7 @@ const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_FOOD_CHARS = 2000;
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export class ValidationError extends Error {
   constructor(message, status = 400) {
@@ -49,8 +50,18 @@ function validateScreenshot(payload) {
   return { type, mediaType, data };
 }
 
+// The person's own calendar date, which only they know: the server runs in UTC.
+function validateAnalyze(payload) {
+  const today = payload?.today;
+  const parsed = typeof today === "string" && DATE.test(today) ? new Date(`${today}T00:00:00Z`) : null;
+  if (!parsed || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== today) {
+    throw new ValidationError("Invalid date.");
+  }
+  return { today };
+}
+
 const VALIDATORS = {
-  analyze: () => ({}),
+  analyze: validateAnalyze,
   read_screenshot: validateScreenshot,
   split_food: validateFood,
   backfill_food: validateFood,

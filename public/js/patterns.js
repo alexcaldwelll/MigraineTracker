@@ -166,6 +166,16 @@ function isMedicine(name, meds){
     || meds.some(med=> allIn(med, words) || allIn(words, med));
 }
 
+// Word lists for `isMedicine`: the common pain relievers plus any other names.
+const medWords = names => [...COMMON_MEDS, ...names].map(nameWords).filter(words=> words.length);
+
+// True if free text names a medicine, by the same word match food factors use:
+// a whole med name found in the text, or the whole text inside a med name. A word
+// that only contains a med name does not count. Latin letters only.
+export function mentionsMedicine(text, medNames = []){
+  return isMedicine(text, medWords(medNames));
+}
+
 // Macros, water and medicines are never food factors, so nothing downstream can
 // suggest skipping them.
 function isFoodFactor(name, meds){
@@ -427,7 +437,7 @@ export function buildStats(days, { now = new Date(), today = now.toISOString().s
   const headacheDays = headacheDaySet(days);
   const logged = days.filter(d=> d.entries.length);
   const loggedMeds = days.flatMap(d=> d.entries.filter(e=> e.type === 'meds').map(e=> e.name));
-  const meds = [...COMMON_MEDS, ...loggedMeds, ...medNames].map(nameWords).filter(words=> words.length);
+  const meds = medWords([...loggedMeds, ...medNames]);
   const catalog = new Map();
   const log = readLog(days, meds, catalog);
   const attacks = days.flatMap(({ date, entries })=> entries.filter(isHeadacheEntry)
@@ -461,7 +471,7 @@ const CYCLE_NOTE_MIN_SHARE = 0.5;
 const SLEEP_TITLE = 'Aim for 7+ hours of sleep';
 // The only food groups narrow enough to try cutting. The rest go to the doctor.
 const SUGGESTIBLE_TYPES = new Set(['type:dairy', 'type:sweets_snacks']);
-const isBroadType = f => kindOf(f.key) === 'type' && !SUGGESTIBLE_TYPES.has(f.key);
+export const isBroadType = f => kindOf(f.key) === 'type' && !SUGGESTIBLE_TYPES.has(f.key);
 
 const HABITS = [
   { factor_key:'habit:steady_sleep', title:'Keep a steady sleep schedule' },

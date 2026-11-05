@@ -1,10 +1,16 @@
-// The Analysis tab: progress, the medication-overuse flag, charts and AI analysis.
+// The Insights tab: progress, the medication-overuse flag, one thing to try next
+// and the charts.
 import { data, emptyOnError } from './data.js';
+import { localDate } from './dates.js';
+import { foodNames } from './food-items.js';
 import { $, escapeHtml } from './ui.js';
 import { daysWithHeadacheDates, headacheDaySet } from './headache.js';
-import { headacheDaysByCycleDay } from './patterns.js';
+import { buildStats, headacheDaysByCycleDay, ruleSuggestion } from './patterns.js';
+
+let analyzing = false;
 
 export async function renderAnalysis(){
+  showSavedInsight($('#aiOutput'));
   const days = await emptyOnError(data().listAll());
   const n = days.length;
   $('#progressNote').innerHTML = n===0
@@ -20,14 +26,7 @@ export async function renderAnalysis(){
     mohCard.innerHTML = `<div class="warn-box"><b>Worth flagging to your doctor:</b> you've logged acute/rescue medication on <b>${acuteDays}</b> of the last 30 days. Regular use of acute headache medication on 10+ days a month (or 15+ for simple pain relievers like NSAIDs) for more than 3 months can itself cause a second headache disorder called medication-overuse headache. This isn't a diagnosis — just something concrete to bring up at your next visit.</div>`;
   } else { mohCard.style.display='none'; }
 
-  // Every date a headache touches is a headache day, with or without a severity.
-  const headacheDays = headacheDaySet(days);
-  const dayRollups = daysWithHeadacheDates(days).map(d=>{
-    const sleepEntry = d.entries.find(e=>e.type==='sleep' && e.hours!=null);
-    const foods = d.entries.filter(e=>e.type==='food').map(e=>e.text.toLowerCase().trim());
-    const meds = d.entries.filter(e=>e.type==='meds').map(e=>e.name.toLowerCase().trim());
-    return { date: d.date, hasHeadache: headacheDays.has(d.date), sleepHours: sleepEntry?sleepEntry.hours:null, foods, meds };
-  });
+  const dayRollups = rollUpDays(days);
   const withH = dayRollups.filter(d=>d.hasHeadache);
   const withoutH = dayRollups.filter(d=>!d.hasHeadache);
   const avg = arr => { const v=arr.map(d=>d.sleepHours).filter(x=>x!=null); return v.length ? v.reduce((a,b)=>a+b,0)/v.length : null; };
@@ -59,13 +58,25 @@ export async function renderAnalysis(){
   }
 }
 
+// Every date a headache touches is a headache day, with or without a severity.
+// A food counts once a day, however many entries it is in.
+export function rollUpDays(days){
+  const headacheDays = headacheDaySet(days);
+  return daysWithHeadacheDates(days).map(d=>{
+    const sleepEntry = d.entries.find(e=>e.type==='sleep' && e.hours!=null);
+    const foods = [...new Set(d.entries.filter(e=>e.type==='food').flatMap(foodNames))];
+    const meds = d.entries.filter(e=>e.type==='meds').map(e=>e.name.toLowerCase().trim());
+    return { date: d.date, hasHeadache: headacheDays.has(d.date), sleepHours: sleepEntry?sleepEntry.hours:null, foods, meds };
+  });
+}
+
 function barRow(label, val, max, count, fmt){
   const pct = val==null?0:Math.min(100,(val/max)*100);
   return `<div class="bar-row"><div class="label">${label}${count!=null?`<span class="count-pill">n=${count}</span>`:''}</div>
     <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
     <div class="bar-val">${val==null?'—':fmt(val)}</div></div>`;
 }
-function freqChart(subset, extractor, color){
+export function freqChart(subset, extractor, color){
   if(subset.length===0) return '<div class="empty">No headache days logged yet.</div>';
   const counts={};
   subset.forEach(d=> extractor(d).forEach(item=>{ if(!item) return; counts[item]=(counts[item]||0)+1; }));
@@ -80,24 +91,112 @@ function freqChart(subset, extractor, color){
   }).join('');
 }
 
+// Every field is AI or logged text, so all of it goes in through textContent.
+export function renderInsight(result, container){
+  const doc = container.ownerDocument;
+  const make = (tag, className, text)=>{
+    const node = doc.createElement(tag);
+    node.className = className;
+    if(text != null) node.textContent = text;
+    return node;
+  };
+  const section = (heading, ...content)=>{
+    const box = make('section', 'insight-section');
+    box.append(make('h3', 'insight-heading', heading), ...content);
+    return box;
+  };
+  const list = (items, fill)=>{
+    const ul = make('ul', 'insight-list');
+    ul.append(...items.map(item=> fill(make('li', 'insight-item'), item)));
+    return ul;
+  };
+
+  const next = result.try_next;
+  const meta = make('div', 'pill-row');
+  meta.append(make('span', 'pill', `Confidence: ${next.confidence}`), make('span', 'pill', `${next.days} days`));
+  const sections = [section('Try this next',
+    make('p', 'insight-title', next.title),
+    make('p', 'insight-text', next.action),
+    make('p', 'insight-why', next.why),
+    meta)];
+
+  if(result.also_watching?.length){
+    sections.push(section('Also watching', list(result.also_watching, (li, { item, evidence })=>{
+      li.append(make('b', 'insight-item-name', item), make('span', 'insight-text', evidence));
+      return li;
+    })));
+  }
+  if(result.keep_logging) sections.push(section('Keep logging', make('p', 'insight-text', result.keep_logging)));
+  if(result.cycle_note) sections.push(section('Your cycle', make('p', 'insight-text', result.cycle_note)));
+  if(result.medication_note) sections.push(section('Medication', make('p', 'insight-text', result.medication_note)));
+  if(result.doctor_questions?.length){
+    sections.push(section('Questions for your doctor', list(result.doctor_questions, (li, question)=>{
+      li.textContent = question;
+      return li;
+    })));
+  }
+  if(result.source === 'rules'){
+    sections.push(make('p', 'analysis-note', "The AI wasn't used for this one, so it comes from the app's own counts."));
+  }
+  container.replaceChildren(...sections);
+}
+
+// The last result, with no AI call. A failed read only logs.
+export async function showSavedInsight(container){
+  try{
+    const saved = await data().getInsight();
+    if(saved?.result?.try_next && !analyzing) renderInsight(saved.result, container);
+  }catch(error){
+    console.error(error);
+  }
+}
+
+// When the AI function cannot be reached. Rejects if the log cannot be read,
+// because an empty log would give a suggestion that is simply wrong.
+async function localInsight(today){
+  const [days, meds] = await Promise.all([data().listAll(), emptyOnError(data().listMeds())]);
+  const stats = buildStats(days, { today, medNames: meds.map(med=> med.name) });
+  return { ...ruleSuggestion(stats), source: 'rules' };
+}
+
+async function saveInsight(insight){
+  try{
+    await data().saveInsight(insight);
+  }catch(error){
+    console.error(error);
+  }
+}
+
+// Only a server answer is saved. A local fallback is worth seeing once, not
+// worth replacing the last AI result for.
+export async function requestInsight(today = localDate()){
+  let insight;
+  try{
+    const { result, source } = await data().ai('analyze', { today });
+    if(!result?.try_next) throw new Error('The analysis came back empty.');
+    insight = { ...result, source };
+  }catch(error){
+    console.error(error);
+    return localInsight(today);
+  }
+  await saveInsight(insight);
+  return insight;
+}
+
 export function initInsights(){
   $('#aiAnalyzeBtn').addEventListener('click', async ()=>{
     const out = $('#aiOutput');
     const btn = $('#aiAnalyzeBtn');
+    analyzing = true;
     btn.disabled = true; btn.textContent = 'Analyzing...';
     out.textContent = '';
     try{
-      const days = await emptyOnError(data().listAll());
-      if(days.length < 5){
-        out.textContent = 'Log at least a few days first — there\'s not enough data yet for a meaningful analysis.';
-        return;
-      }
-      const { text } = await data().ai('analyze', {});
-      out.textContent = text;
+      renderInsight(await requestInsight(), out);
     }catch(e){
       console.error(e);
       out.textContent = 'Analysis failed: ' + (e.message || e);
     }finally{
+      analyzing = false;
       btn.disabled = false; btn.textContent = 'Analyze my data';
     }
   });

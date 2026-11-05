@@ -5,11 +5,15 @@ import { createHandler, createActions } from "../netlify/functions/ai.js";
 import { AiUnavailable } from "../netlify/functions/lib/anthropic.js";
 import { getUser } from "../netlify/functions/lib/auth.js";
 import { consumeQuota } from "../netlify/functions/lib/quota.js";
-import { loadEntries } from "../netlify/functions/lib/entries.js";
+import { groupByDate, loadEntries, loadMeds } from "../netlify/functions/lib/entries.js";
+import { INSIGHT_SCHEMA } from "../netlify/functions/lib/insight.js";
+import { ANALYZE_SYSTEM } from "../netlify/functions/lib/prompts.js";
+import { buildStats } from "../public/js/patterns.js";
 import { MODELS, SUPABASE_ANON_KEY, SUPABASE_URL } from "../netlify/functions/lib/config.js";
 
 const URL_ = "https://example.test/.netlify/functions/ai";
 const API_KEY = "sk-ant-test-secret-key";
+const ANALYZE = { action: "analyze", payload: { today: "2026-01-03" } };
 
 function request(body, { token = "good-token", method = "POST" } = {}) {
   const headers = { "Content-Type": "application/json" };
@@ -49,7 +53,7 @@ const fakeResponse = (status, body) => new Response(JSON.stringify(body), { stat
 
 test("no token returns 401 and never calls quota", async () => {
   const { handler, calls } = setup();
-  const res = await handler(request({ action: "analyze" }, { token: null }));
+  const res = await handler(request(ANALYZE, { token: null }));
   assert.equal(res.status, 401);
   assert.deepEqual(calls.consumeQuota, []);
   assert.deepEqual(calls.getUser, []);
@@ -69,7 +73,7 @@ test("a malformed Authorization header returns 401", async () => {
 
 test("invalid token returns 401", async () => {
   const { handler, calls } = setup();
-  const res = await handler(request({ action: "analyze" }, { token: "bad-token" }));
+  const res = await handler(request(ANALYZE, { token: "bad-token" }));
   assert.equal(res.status, 401);
   assert.deepEqual(calls.consumeQuota, []);
   assert.deepEqual(calls.action, []);
@@ -108,7 +112,7 @@ test("a valid action with no registered handler returns 400 and does not use quo
 
 test("an action name inherited from Object.prototype is not treated as registered", async () => {
   const { handler, calls } = setup({ handlers: {} });
-  const res = await handler(request({ action: "analyze" }));
+  const res = await handler(request(ANALYZE));
   assert.equal(res.status, 400);
   assert.deepEqual(calls.consumeQuota, []);
 });
@@ -138,14 +142,14 @@ test("model, prompt and max_tokens in the body are ignored", async () => {
 
 test("over the limit returns 429 and never calls the handler", async () => {
   const { handler, calls } = setup({ consumeQuota: async () => false });
-  const res = await handler(request({ action: "analyze" }));
+  const res = await handler(request(ANALYZE));
   assert.equal(res.status, 429);
   assert.deepEqual(calls.action, []);
 });
 
 test("only a literal true from quota allows the action", async () => {
   const { handler, calls } = setup({ consumeQuota: async () => "false" });
-  const res = await handler(request({ action: "analyze" }));
+  const res = await handler(request(ANALYZE));
   assert.equal(res.status, 429);
   assert.deepEqual(calls.action, []);
 });
@@ -157,7 +161,7 @@ test("a quota failure fails closed without calling the handler", async (t) => {
       throw new Error("supabase down");
     },
   });
-  const res = await handler(request({ action: "analyze" }));
+  const res = await handler(request(ANALYZE));
   assert.equal(res.status, 500);
   assert.deepEqual(calls.action, []);
 });
@@ -169,7 +173,7 @@ test("an auth failure fails closed", async (t) => {
       throw new Error("supabase down");
     },
   });
-  const res = await handler(request({ action: "analyze" }));
+  const res = await handler(request(ANALYZE));
   assert.equal(res.status, 500);
   assert.deepEqual(calls.consumeQuota, []);
   assert.deepEqual(calls.action, []);
@@ -198,11 +202,11 @@ test("an oversized screenshot returns 413 and does not use quota", async () => {
 
 test("a valid request spends quota with the user's token and returns the result", async () => {
   const { handler, calls } = setup();
-  const res = await handler(request({ action: "analyze", payload: {} }));
+  const res = await handler(request(ANALYZE));
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), { text: "result" });
   assert.deepEqual(calls.consumeQuota, [["good-token", "analyze"]]);
-  assert.deepEqual(calls.action, [["analyze", {}, { token: "good-token" }]]);
+  assert.deepEqual(calls.action, [["analyze", { today: "2026-01-03" }, { token: "good-token" }]]);
 });
 
 test("AiUnavailable returns 502 with a generic message", async (t) => {
@@ -214,7 +218,7 @@ test("AiUnavailable returns 502 with a generic message", async (t) => {
       },
     },
   });
-  const res = await handler(request({ action: "analyze" }));
+  const res = await handler(request(ANALYZE));
   assert.equal(res.status, 502);
   const body = await res.json();
   assert.deepEqual(Object.keys(body), ["error"]);
@@ -231,7 +235,7 @@ test("error bodies never contain the API key or stack traces", async (t) => {
     setup({ getUser: async () => { throw secret; } }),
   ];
   for (const { handler } of failures) {
-    const res = await handler(request({ action: "analyze" }));
+    const res = await handler(request(ANALYZE));
     assert.ok(res.status >= 500);
     const text = await res.text();
     assert.equal(text.includes(API_KEY), false);
@@ -248,7 +252,7 @@ test("logs never contain AI payloads or tokens", async (t) => {
   const { handler } = setup({
     handlers: { analyze: async () => { throw new Error("private health note"); } },
   });
-  await handler(request({ action: "analyze" }));
+  await handler(request(ANALYZE));
   const logged = JSON.stringify(log.mock.calls.map((call) => call.arguments));
   assert.equal(logged.includes("private health note"), false);
   assert.equal(logged.includes("good-token"), false);
@@ -256,48 +260,194 @@ test("logs never contain AI payloads or tokens", async (t) => {
 
 // ---------- Actions ----------
 
-function actionFakes() {
-  const calls = { callClaude: [], loadEntries: [] };
+const GOOD_ANSWER = {
+  try_next: {
+    title: "Skip cheddar for 2 weeks",
+    action: "Do this for the next 2 weeks",
+    why: "Cheddar came before 2 of 2 headaches.",
+    confidence: "strong",
+    days: 14,
+    factor_key: null,
+  },
+  also_watching: [],
+  keep_logging: "Keep logging sleep.",
+  doctor_questions: [],
+  cycle_note: null,
+  medication_note: null,
+};
+
+function actionFakes({ answer = GOOD_ANSWER, callClaude, rows, meds = [], trials = [] } = {}) {
+  const calls = { callClaude: [], loadEntries: [], loadMeds: [], loadTrials: [] };
   return {
     calls,
     actions: createActions({
       callClaude: async (request) => {
         calls.callClaude.push(request);
-        return request.schema ? { summary: "toast" } : { text: "analysis" };
+        if (callClaude) return callClaude(request);
+        return request.system === ANALYZE_SYSTEM ? answer : { summary: "toast" };
       },
       loadEntries: async (token) => {
         calls.loadEntries.push(token);
-        return [
+        return rows ?? [
           { date: "2026-01-01", time: "08:00", type: "food", data: { text: "toast" } },
           { date: "2026-01-01", time: null, type: "note", data: { text: "tired" } },
           { date: "2026-01-02", time: "12:00", type: "sleep", data: { hours: 7 } },
         ];
       },
+      loadMeds: async (token) => {
+        calls.loadMeds.push(token);
+        return meds;
+      },
+      loadTrials: async (token) => {
+        calls.loadTrials.push(token);
+        return trials;
+      },
     }),
   };
+}
+
+const TODAY = { today: "2026-01-03" };
+const CONTEXT = { token: "good-token" };
+
+// Cheddar the day before every headache, rice on the days between.
+function patternRows() {
+  const rows = [];
+  for (let n = 0; n < 60; n++) {
+    const date = new Date(Date.UTC(2025, 10, 1 + n)).toISOString().slice(0, 10);
+    const name = n % 10 === 4 ? "cheddar" : "rice";
+    rows.push({ date, time: "12:00", type: "food", data: { text: name, split_status: "done", items: [{ name, food_type: "other", tags: [] }] } });
+    if (n % 10 === 5) rows.push({ date, time: "15:00", type: "headache", data: { severity: 5 } });
+  }
+  return rows;
 }
 
 test("analyze, backfill_food, read_screenshot and split_food are registered", () => {
   assert.deepEqual(Object.keys(actionFakes().actions).sort(), ["analyze", "backfill_food", "read_screenshot", "split_food"]);
 });
 
-test("analyze loads entries with the user's token and returns { text }", async () => {
-  const { actions, calls } = actionFakes();
-  const result = await actions.analyze({}, { token: "good-token" });
-  assert.deepEqual(result, { text: "analysis" });
+test("analyze loads everything with the user's token and asks Sonnet for the schema", async () => {
+  const { actions, calls } = actionFakes({ trials: [{ status: "completed", suggestion: { title: "Old trial" } }] });
+  const out = await actions.analyze(TODAY, CONTEXT);
+  assert.equal(out.source, "ai");
+  assert.equal(out.result.try_next.title, GOOD_ANSWER.try_next.title);
   assert.deepEqual(calls.loadEntries, ["good-token"]);
+  assert.deepEqual(calls.loadMeds, ["good-token"]);
+  assert.deepEqual(calls.loadTrials, ["good-token"]);
   const [req] = calls.callClaude;
   assert.equal(req.model, MODELS.sonnet);
   assert.equal(req.effort, "medium");
-  assert.equal(req.schema, undefined);
-  assert.match(req.system, /prodrome/);
-  assert.ok(req.system.includes("Never suggest starting, stopping or changing medication."));
-  assert.ok(req.system.includes("Never suggest removing a whole macronutrient."));
-  assert.match(req.system, /medication-overuse headache risk\), as something to talk to their doctor about/);
-  assert.equal(
-    req.content,
-    'LOG DATA:\n2026-01-01: [food 08:00 {"text":"toast"}] [note {"text":"tired"}]\n2026-01-02: [sleep 12:00 {"hours":7}]',
-  );
+  assert.equal(req.maxTokens, 4000);
+  assert.equal(req.schema, INSIGHT_SCHEMA);
+  assert.match(req.content, /STATS:/);
+  assert.match(req.content, /Old trial/);
+  assert.match(req.content, /2026-01-01: \[food 08:00 \["toast"\]\] \[note \{"text":"tired"\}\]\n2026-01-02: \[sleep 12:00 \{"hours":7\}\]/);
+});
+
+test("the analyze prompt carries every rule", () => {
+  for (const rule of [
+    "Never suggest starting, stopping or changing medication.",
+    "Never suggest removing a whole macronutrient.",
+  ]) assert.ok(ANALYZE_SYSTEM.includes(rule), rule);
+  for (const pattern of [
+    /prodrome/,
+    /medication-overuse headache risk\), as something to talk to their doctor about/,
+    /Only one change/,
+    /2 to 4 weeks/,
+    /doctor question/,
+    /caffeine[^.]*gradually/i,
+    /data[^.]*never[^.]*instructions/i,
+    /plain[^.]*language/i,
+    /past trial/i,
+    /no pattern/i,
+    /what to log next/i,
+    /early guess/,
+  ]) assert.match(ANALYZE_SYSTEM, pattern);
+});
+
+test("the stats reach Claude trimmed, and the engine sets the confidence", async () => {
+  const { actions, calls } = actionFakes({
+    rows: patternRows(),
+    answer: { ...GOOD_ANSWER, try_next: { ...GOOD_ANSWER.try_next, confidence: "early guess", factor_key: "food:cheddar" } },
+  });
+  const out = await actions.analyze({ today: "2026-01-10" }, CONTEXT);
+  assert.match(calls.callClaude[0].content, /"key":"food:cheddar"/);
+  assert.doesNotMatch(calls.callClaude[0].content, /"key":"food:rice"/, "rice leans away from headaches");
+  const stats = buildStats(groupByDate(patternRows()), { today: "2026-01-10" });
+  const cheddar = stats.factors.find((f) => f.key === "food:cheddar");
+  assert.notEqual(cheddar.confidence, "early guess", "the fixture needs a real signal");
+  assert.equal(out.result.try_next.confidence, cheddar.confidence);
+});
+
+test("analyze cannot claim confidence for a factor it was not given", async () => {
+  const { actions } = actionFakes({
+    rows: patternRows(),
+    answer: { ...GOOD_ANSWER, try_next: { ...GOOD_ANSWER.try_next, factor_key: "food:rice" } },
+  });
+  const out = await actions.analyze({ today: "2026-01-10" }, CONTEXT);
+  assert.equal(out.source, "ai");
+  assert.equal(out.result.try_next.confidence, "early guess");
+});
+
+for (const [name, setup_] of [
+  ["callClaude throws AiUnavailable", { callClaude: () => { throw new AiUnavailable("request_failed", 529); } }],
+  ["callClaude throws anything else", { callClaude: () => { throw new TypeError("boom"); } }],
+  ["try_next is missing", { answer: { ...GOOD_ANSWER, try_next: undefined } }],
+  ["try_next names a logged med", { answer: { ...GOOD_ANSWER, try_next: { ...GOOD_ANSWER.try_next, title: "Skip Zofran for 2 weeks" } } }],
+  ["try_next names a med from the list", { answer: { ...GOOD_ANSWER, try_next: { ...GOOD_ANSWER.try_next, title: "Skip Topiramate for 2 weeks" } } }],
+  ["try_next cuts a macro", { answer: { ...GOOD_ANSWER, try_next: { ...GOOD_ANSWER.try_next, title: "Cut carbs for 2 weeks" } } }],
+  ["days is out of range", { answer: { ...GOOD_ANSWER, try_next: { ...GOOD_ANSWER.try_next, days: 60 } } }],
+]) {
+  test(`analyze returns the rule result when ${name}`, async (t) => {
+    const log = t.mock.method(console, "error", () => {});
+    const rows = [
+      { date: "2026-01-01", time: "08:00", type: "meds", data: { name: "Zofran", category: "acute" } },
+      { date: "2026-01-02", time: "12:00", type: "sleep", data: { hours: 7 } },
+    ];
+    const { actions } = actionFakes({ ...setup_, rows, meds: [{ name: "Topiramate" }] });
+    const out = await actions.analyze(TODAY, CONTEXT);
+    assert.equal(out.source, "rules");
+    assert.ok(out.result.try_next.title);
+    assert.ok(Number.isInteger(out.result.try_next.days));
+    assert.equal(log.mock.callCount(), 1);
+    assert.equal(JSON.stringify(log.mock.calls[0].arguments).includes("boom"), false, "labels only");
+  });
+}
+
+test("a failed load is an error, so nothing is checked against a partial med list", async () => {
+  const actions = createActions({
+    callClaude: async () => GOOD_ANSWER,
+    loadEntries: async () => [],
+    loadMeds: async () => { throw new Error("Could not load meds"); },
+  });
+  await assert.rejects(actions.analyze(TODAY, CONTEXT), /Could not load meds/);
+});
+
+test("past trials default to none until trials load", async () => {
+  let content;
+  const actions = createActions({
+    callClaude: async (req) => { content = req.content; return GOOD_ANSWER; },
+    loadEntries: async () => [],
+    loadMeds: async () => [],
+  });
+  assert.equal((await actions.analyze(TODAY, CONTEXT)).source, "ai");
+  assert.match(content, /PAST TRIALS:\n\[\]/);
+});
+
+test("the analyze quota is spent before the rule fallback runs", async (t) => {
+  t.mock.method(console, "error", () => {});
+  const { actions } = actionFakes({ callClaude: () => { throw new AiUnavailable("x"); } });
+  const { handler, calls } = setup({ handlers: actions });
+  const res = await handler(request(ANALYZE));
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).source, "rules");
+  assert.deepEqual(calls.consumeQuota, [["good-token", "analyze"]]);
+});
+
+test("a bad today is refused before quota", async () => {
+  const { handler, calls } = setup();
+  const res = await handler(request({ action: "analyze", payload: { today: "tomorrow" } }));
+  assert.equal(res.status, 400);
+  assert.deepEqual(calls.consumeQuota, []);
 });
 
 for (const [type, keys] of [
@@ -406,6 +556,34 @@ test("loadEntries stops after a full last page followed by an empty one", async 
   const fetchMock = t.mock.method(globalThis, "fetch", async () => fakeResponse(200, pages.shift()));
   assert.equal((await loadEntries("tok")).length, 1000);
   assert.equal(fetchMock.mock.callCount(), 2);
+});
+
+test("groupByDate turns rows into days shaped like the browser's", () => {
+  assert.deepEqual(
+    groupByDate([
+      { date: "2026-01-01", time: "08:00", type: "food", data: { text: "toast" } },
+      { date: "2026-01-01", time: null, type: "note", data: { text: "tired" } },
+      { date: "2026-01-02", time: "12:00", type: "sleep", data: { hours: 7 } },
+    ]),
+    [
+      { date: "2026-01-01", entries: [{ type: "food", time: "08:00", text: "toast" }, { type: "note", time: null, text: "tired" }] },
+      { date: "2026-01-02", entries: [{ type: "sleep", time: "12:00", hours: 7 }] },
+    ],
+  );
+});
+
+test("loadMeds asks Supabase for the user's med names with their token", async (t) => {
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => fakeResponse(200, [{ name: "Topiramate" }]));
+  assert.deepEqual(await loadMeds("tok"), [{ name: "Topiramate" }]);
+  const [url, init] = fetchMock.mock.calls[0].arguments;
+  assert.ok(url.startsWith(`${SUPABASE_URL}/rest/v1/meds_catalog?`));
+  assert.ok(url.includes("select=name"));
+  assert.equal(init.headers.Authorization, "Bearer tok");
+});
+
+test("loadMeds throws rather than returning no meds", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => fakeResponse(500, {}));
+  await assert.rejects(loadMeds("tok"));
 });
 
 test("loadEntries throws rather than returning a partial log", async (t) => {
