@@ -168,8 +168,10 @@ begin
 end $$;
 
 -- New tables are unreachable through the Data API without explicit grants.
--- Row-level security still limits the signed-in role to its own rows. anon gets
--- nothing, and ai_usage is reached only through consume_ai_quota.
+-- Row-level security still limits the signed-in role to its own rows, but not
+-- TRUNCATE, so older default rights are cleared first. anon gets nothing, and
+-- ai_usage is reached only through consume_ai_quota.
 revoke all on entries, meds_catalog, user_settings, insights, trials from anon;
+revoke all on entries, meds_catalog, user_settings, insights, trials from authenticated;
 grant select, insert, update, delete on entries, meds_catalog, user_settings, insights, trials to authenticated;
 revoke all on ai_usage from anon, authenticated;

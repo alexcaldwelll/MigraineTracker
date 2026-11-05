@@ -81,6 +81,8 @@ test('the signed-in role gets exactly the table rights the app uses, and anon ge
   assert.match(lower, /grant select, insert, update, delete on entries, meds_catalog, user_settings, insights, trials to authenticated;/);
   assert.match(lower, /revoke all on ai_usage from anon, authenticated;/);
   assert.match(lower, /revoke all on entries, meds_catalog, user_settings, insights, trials from anon;/);
+  assert.match(lower, /revoke all on entries, meds_catalog, user_settings, insights, trials from authenticated;/);
+  assert.ok(lower.indexOf('trials from authenticated;') < lower.indexOf('grant select, insert, update, delete'), 'TRUNCATE must go before the grant');
   assert.doesNotMatch(lower, /\bgrant\b[^;]*\bto\b[^;]*\banon\b/);
   const grants = lower.match(/\bgrant\b[^;]*\bon\b[^;]*;/g).join(' ');
   assert.doesNotMatch(grants.replace(/grant execute[^;]*;/, ''), /ai_usage/);
