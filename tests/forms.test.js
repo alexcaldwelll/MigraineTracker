@@ -185,8 +185,8 @@ test("the More list holds the five other types in order", () => {
   ]);
 });
 
-test("the sheet is one dialog with a named close button and one submit button", () => {
-  assert.equal([...html.matchAll(/<dialog\b/g)].length, 1);
+test("the entry sheet is one dialog (plus the AI notice) with a named close button and one submit button", () => {
+  assert.deepEqual([...html.matchAll(/<dialog\b[^>]*id="([^"]+)"/g)].map((m) => m[1]), ["sheet", "aiNotice"]);
   assert.match(html, /<button[^>]*id="sheetClose"[^>]*aria-label="Close"/);
   assert.equal([...html.matchAll(/type="submit"/g)].length, 1);
 });

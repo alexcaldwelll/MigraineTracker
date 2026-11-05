@@ -1,8 +1,9 @@
 import { bearerToken, getUser } from "./lib/auth.js";
 import { AiUnavailable, callClaude } from "./lib/anthropic.js";
 import { MODELS } from "./lib/config.js";
+import { FOOD_SCHEMA, validateItems } from "./lib/food.js";
 import { loadEntries } from "./lib/entries.js";
-import { ANALYZE_SYSTEM, SCREENSHOTS, formatLog } from "./lib/prompts.js";
+import { ANALYZE_SYSTEM, SCREENSHOTS, SPLIT_FOOD_SYSTEM, formatLog } from "./lib/prompts.js";
 import { consumeQuota } from "./lib/quota.js";
 import { ValidationError, validateRequest } from "./lib/validate.js";
 
@@ -74,6 +75,20 @@ export function createActions({ callClaude, loadEntries }) {
         content: [{ type: "image", source: { type: "base64", media_type: mediaType, data } }],
         schema: SCREENSHOTS[type].schema,
       }),
+
+    // 8000 tokens: a 2,000-character entry can hold dozens of foods at about
+    // 70 tokens each, and thinking counts toward max_tokens too.
+    split_food: async ({ text }) => {
+      const result = await callClaude({
+        model: MODELS.haiku,
+        effort: "low",
+        maxTokens: 8000,
+        system: SPLIT_FOOD_SYSTEM,
+        content: text,
+        schema: FOOD_SCHEMA,
+      });
+      return { items: validateItems(result?.items) };
+    },
   };
 }
 

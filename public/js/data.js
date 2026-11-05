@@ -59,8 +59,10 @@ export function createSupabaseBackend(client){
       return Array.from(byDate, ([date, entries])=>({date, entries}));
     },
 
+    // Returns the new row's id (null if the store did not give one back).
     async add(date, entry){
-      await run(client.from('entries').insert(entryToRow(date, entry)));
+      const row = await run(client.from('entries').insert(entryToRow(date, entry)).select('id').single());
+      return row?.id ?? null;
     },
     async update(id, date, entry){
       await run(client.from('entries').update(entryToRow(date, entry)).eq('id', id));

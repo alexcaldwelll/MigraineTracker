@@ -384,6 +384,14 @@
   </form>
 </dialog>
 
+<!-- ONE-TIME AI NOTICE -->
+<dialog id="aiNotice" class="sheet" aria-labelledby="aiNoticeTitle">
+  <h2 id="aiNoticeTitle">Before you log food</h2>
+  <p id="aiNoticeText">To sort your food and find patterns, what you log here is sent to Anthropic, the company behind Claude. This app isn't a diagnosis.</p>
+  <p id="aiNoticeError" role="alert" hidden></p>
+  <button type="button" class="btn" id="aiNoticeBtn">Got it</button>
+</dialog>
+
 <!-- MEDS SETTINGS MODAL -->
 <div id="medsModal" style="display:none; position:fixed; inset:0; background:var(--backdrop); z-index:100;">
   <div style="background:var(--paper); max-width:480px; margin:60px auto; border-radius:12px; padding:20px; max-height:80vh; overflow-y:auto;">

@@ -101,10 +101,8 @@ test("invalid JSON returns 400 and does not use quota", async () => {
 
 test("a valid action with no registered handler returns 400 and does not use quota", async () => {
   const { handler, calls } = setup();
-  for (const action of ["split_food", "backfill_food"]) {
-    const res = await handler(request({ action, payload: { text: "toast" } }));
-    assert.equal(res.status, 400);
-  }
+  const res = await handler(request({ action: "backfill_food", payload: { text: "toast" } }));
+  assert.equal(res.status, 400);
   assert.deepEqual(calls.consumeQuota, []);
 });
 
@@ -279,8 +277,8 @@ function actionFakes() {
   };
 }
 
-test("only analyze and read_screenshot are registered", () => {
-  assert.deepEqual(Object.keys(actionFakes().actions).sort(), ["analyze", "read_screenshot"]);
+test("only analyze, read_screenshot and split_food are registered", () => {
+  assert.deepEqual(Object.keys(actionFakes().actions).sort(), ["analyze", "read_screenshot", "split_food"]);
 });
 
 test("analyze loads entries with the user's token and returns { text }", async () => {
@@ -431,4 +429,30 @@ test("the open proxy is deleted and the browser no longer calls it", () => {
   assert.equal(browserCode.includes("/.netlify/functions/analyze"), false);
   assert.equal(/model:\s*'claude-/.test(browserCode), false);
   assert.equal(/max_tokens/.test(browserCode), false);
+});
+
+test("split_food rejects text over 2,000 characters before quota", async () => {
+  const { handler, calls } = setup({
+    handlers: { split_food: async () => ({ items: [] }) },
+  });
+  const res = await handler(request({ action: "split_food", payload: { text: "a".repeat(2001) } }));
+  assert.equal(res.status, 413);
+  assert.deepEqual(calls.consumeQuota, []);
+});
+
+test("split_food uses haiku at low effort with the food schema and validates the result", async () => {
+  const calls = [];
+  const actions = createActions({
+    callClaude: async (req) => {
+      calls.push(req);
+      return { items: [{ name: "tea", main_macro: "carbs", food_type: "drinks", protein_g: 0, carbs_g: 0, fat_g: 0, tags: ["caffeine", "bogus"] }] };
+    },
+    loadEntries: async () => [],
+  });
+  const result = await actions.split_food({ text: "tea" });
+  assert.equal(calls[0].model, MODELS.haiku);
+  assert.equal(calls[0].effort, "low");
+  assert.equal(calls[0].content, "tea");
+  assert.ok(calls[0].schema);
+  assert.deepEqual(result.items[0].tags, ["caffeine"]);
 });

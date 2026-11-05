@@ -3,6 +3,7 @@
 import { data, emptyOnError } from './data.js';
 import { localDate, nowTime, shortDate } from './dates.js';
 import { closedHeadacheTimes } from './headache.js';
+import { splitEntry } from './food.js';
 import { $, $$, escapeHtml, xIcon, singleSelect, multiSelect, getSingle, getMulti, setChip, setOn } from './ui.js';
 
 const SHEET_TITLES = {food:'Food', headache:'Headache', prodrome:'Early signs', meds:'Meds', sleep:'Sleep', workout:'Exercise', period:'Period', hydration:'Water', note:'Note'};
@@ -37,6 +38,17 @@ function renderInterruptions(){
   });
 }
 
+// A new food entry, or one whose text changed, goes back to "pending". An
+// unchanged edit keeps its items and status, since an update replaces the data.
+function foodSplitFields(text){
+  const prior = editingEntry;
+  if(!prior || prior.type!=='food') return { text, split_status: 'pending' };
+  const keep = {};
+  if(prior.items) keep.items = prior.items;
+  if(prior.text === text && prior.split_status) return { text, split_status: prior.split_status, ...keep };
+  return { text, split_status: 'pending', ...keep };
+}
+
 // ---------- Build entry payload ----------
 function buildEntry(date){
   const time = $('#entryTime').value || nowTime();
@@ -44,7 +56,7 @@ function buildEntry(date){
   if(currentType==='food'){
     const text = $('#foodText').value.trim();
     if(!text) return null;
-    return {...base, text};
+    return {...base, ...foodSplitFields(text)};
   }
   if(currentType==='headache'){
     const sevBtn = $('#severityRow').querySelector('.sev-btn.on');
@@ -153,8 +165,8 @@ function failureMessage(error){
 }
 export async function submitEntry(date, entry){
   try{
-    await data().add(date, entry);
-    return { ok: true };
+    const id = await data().add(date, entry);
+    return id ? { ok: true, id } : { ok: true };
   }catch(error){
     console.error(error);
     return { ok: false, error: failureMessage(error) };
@@ -233,6 +245,10 @@ async function saveSheet(){
   if(remember) saveMedToCatalog(entry.name, entry.category, entry.dose);
   closeSheet();
   onEntrySaved({ type });
+  if(type==='food' && entry.split_status==='pending'){
+    // Not awaited: the form is already closed. Refresh once the items arrive.
+    splitEntry(date, { ...entry, id: id || result.id }).then(()=> onEntrySaved({ type }));
+  }
 }
 
 // A tap on a saved medication logs it at once and leaves the sheet open, so

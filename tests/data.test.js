@@ -149,6 +149,11 @@ test("add stores type and time in columns and everything else in data", async ()
   ]);
 });
 
+test("add returns the new row id", async () => {
+  const client = fakeClient(() => ({ data: { id: "new-id" }, error: null }));
+  assert.equal(await createSupabaseBackend(client).add("2026-02-02", { type: "food", time: "09:00" }), "new-id");
+});
+
 test("update writes the row with that id", async () => {
   const client = fakeClient();
   await createSupabaseBackend(client).update("a", "2026-02-03", { type: "note", time: "10:00", text: "x" });
