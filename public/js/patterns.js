@@ -407,9 +407,10 @@ function factorTrial(f, stats){
   return { title: `Skip ${inSentence(f.label)} for ${days / 7} weeks`, action: forWeeks(days), why, confidence: f.confidence, days, factor_key: f.key };
 }
 
-// A signal at all: seen more than once, with windows to compare, and leaning
-// toward headaches. More sleep cannot answer 7+ hours.
-const hasSignal = f => f.key !== 'sleep:7_plus' && f.controlTotal > 0
+// A signal at all: seen more than once, and leaning toward headaches. With no
+// control windows p is 1, so this also needs windows to compare. More sleep
+// cannot answer 7+ hours.
+const hasSignal = f => f.key !== 'sleep:7_plus'
   && f.beforeHeadache >= MIN_HITS_TO_SUGGEST && factorP(f) <= MAX_P_TO_SUGGEST;
 
 const worthSuggesting = f => hasSignal(f) && !isBroadType(f);
