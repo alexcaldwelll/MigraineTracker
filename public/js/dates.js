@@ -15,3 +15,15 @@ export function shiftDate(dateStr, days){
 }
 
 export function nowTime(){ return new Date().toTimeString().slice(0,5); }
+
+// "Wed, Nov 4"
+export function shortDate(dateStr){
+  return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'});
+}
+
+export function dayTitle(dateStr, today = localDate()){
+  if(dateStr===today) return 'Today';
+  if(dateStr===shiftDate(today, -1)) return 'Yesterday';
+  if(dateStr===shiftDate(today, 1)) return 'Tomorrow';
+  return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', {weekday:'long'});
+}

@@ -52,12 +52,17 @@ test("every id selector used in public/js exists in index.html", () => {
   assert.ok(found.size > 60, `only ${found.size} selectors found, so the pattern has likely stopped matching`);
 });
 
-test("the ids built at runtime exist for every type chip and tab", () => {
-  const types = [...html.matchAll(/class="type-chip[^"]*" data-val="([^"]+)"/g)].map((m) => m[1]);
+test("the ids built at runtime exist for every entry type and tab", () => {
+  const moreTypes = [...html.matchAll(/data-more="([^"]+)"/g)].map((m) => m[1]);
+  const tileTypes = [...html.matchAll(/data-sheet="([^"]+)"/g)].map((m) => m[1]).filter((t) => t !== "more");
+  const types = [...tileTypes, ...moreTypes, "headache"];
   assert.equal(types.length, 9);
-  for (const type of types) assert.ok(htmlIds.has(`fields-${type}`), `#fields-${type} is missing`);
+  for (const type of types) {
+    assert.ok(htmlIds.has(`fields-${type}`), `#fields-${type} is missing`);
+    assert.match(sources["forms.js"], new RegExp(`\\b${type}:'`), `${type} has no sheet title`);
+  }
   const tabs = [...html.matchAll(/data-tab="([^"]+)"/g)].map((m) => m[1]);
-  assert.equal(tabs.length, 3);
+  assert.deepEqual(tabs, ["today", "history", "insights"]);
   for (const tab of tabs) assert.ok(htmlIds.has(`tab-${tab}`), `#tab-${tab} is missing`);
 });
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="color-scheme" content="light dark">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Migraine & Trigger Log</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -77,216 +77,39 @@
   <div class="header-top-row">
     <h1>Migraine & Trigger Log</h1>
     <div class="header-actions">
-      <button class="btn ghost" id="settingsBtn"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-pills"></use></svg><span class="btn-label">Meds list</span></button>
+      <button type="button" class="btn ghost" id="settingsBtn"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><use href="#icon-pills"></use></svg><span class="btn-label">Meds list</span></button>
       <button class="btn ghost" id="changePasswordBtn"><span class="btn-label">Change password</span></button>
       <button class="btn ghost" id="signOutBtn"><span class="btn-label">Sign out</span></button>
     </div>
   </div>
-  <div class="sub">Log anytime, as often as you need · patterns emerge after ~1 month</div>
-  <nav>
-    <button class="active" data-tab="log">Log</button>
-    <button data-tab="history">History</button>
-    <button data-tab="analysis">Analysis</button>
-  </nav>
 </header>
 
 <main>
 
-  <div id="tab-log">
-    <div class="day-picker">
-      <button id="dayBack"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-chevron-left"></use></svg></button>
-      <input type="date" id="entryDate">
-      <button id="dayFwd"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-chevron-right"></use></svg></button>
+  <div id="tab-today">
+    <div class="day-header">
+      <div class="day-heading">
+        <h2 class="day-title" id="dayTitle">Today</h2>
+        <div class="day-date" id="dayDate"></div>
+      </div>
+      <div class="day-picker">
+        <button type="button" id="dayBack" aria-label="Previous day"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><use href="#icon-chevron-left"></use></svg></button>
+        <input type="date" id="entryDate" aria-label="Date">
+        <button type="button" id="dayFwd" aria-label="Next day"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><use href="#icon-chevron-right"></use></svg></button>
+      </div>
     </div>
 
-    <div class="card" id="quickMedsCard">
-      <h2>Quick meds check-off</h2>
-      <div class="chip-row" id="quickMedsRow"></div>
-      <div id="quickMedsEmpty" class="analysis-note" style="display:none;">No saved medications yet. Tap "Meds list" above to add ones you take regularly, or use the Meds/Supp type below for a one-off.</div>
-    </div>
+    <button type="button" class="headache-btn" id="headacheBtn">I have a headache</button>
 
-    <div class="card">
-      <h2 id="formHeading">Add an entry</h2>
-      <div class="chip-row" id="typeRow">
-        <div class="type-chip on" data-val="food"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-food"></use></svg><span>Food</span></div>
-        <div class="type-chip" data-val="headache"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-headache"></use></svg><span>Headache</span></div>
-        <div class="type-chip" data-val="prodrome"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-prodrome"></use></svg><span>Early signs</span></div>
-        <div class="type-chip" data-val="meds"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-meds"></use></svg><span>Meds</span></div>
-        <div class="type-chip" data-val="sleep"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-sleep"></use></svg><span>Sleep</span></div>
-        <div class="type-chip" data-val="workout"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-workout"></use></svg><span>Exercise</span></div>
-        <div class="type-chip" data-val="period"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-period"></use></svg><span>Period</span></div>
-        <div class="type-chip" data-val="hydration"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-hydration"></use></svg><span>Water</span></div>
-        <div class="type-chip" data-val="note"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-note"></use></svg><span>Note</span></div>
-      </div>
-
-      <div id="screenshotRow" style="display:block; margin-top:10px;">
-        <label>Or upload a screenshot (Chronometer / MyFitnessPal / Whoop / Apple Watch) — AI drafts the fields for you to check</label>
-        <input type="file" id="screenshotFile" accept="image/*">
-        <div id="screenshotStatus" style="font-size:12px; color:var(--muted); margin-top:4px;"></div>
-      </div>
-
-      <label>Time (optional — leave blank for now)</label>
-      <input type="time" id="entryTime">
-
-      <div id="fields-food" class="type-fields">
-        <label>What did you have?</label>
-        <input type="text" id="foodText" placeholder="e.g. 2 eggs, egg whites, buttered pan">
-      </div>
-
-      <div id="fields-headache" class="type-fields" style="display:none;">
-        <label>Start time (required for this one — use the Time field above)</label>
-        <label>Severity</label>
-        <div class="severity" id="severityRow">
-          <div class="sev-btn" data-val="1">1</div><div class="sev-btn" data-val="2">2</div>
-          <div class="sev-btn" data-val="3">3</div><div class="sev-btn" data-val="4">4</div>
-          <div class="sev-btn" data-val="5">5</div><div class="sev-btn" data-val="6">6</div>
-          <div class="sev-btn" data-val="7">7</div><div class="sev-btn" data-val="8">8</div>
-          <div class="sev-btn" data-val="9">9</div><div class="sev-btn" data-val="10">10</div>
-        </div>
-        <label>Duration (hours, optional — leave blank if still ongoing)</label>
-        <input type="number" id="headacheDuration" min="0" step="0.5">
-        <label>Brain fog</label>
-        <div class="chip-row" id="fogRow">
-          <div class="chip" data-val="mild">Mild</div>
-          <div class="chip" data-val="moderate">Moderate</div>
-          <div class="chip" data-val="severe">Severe</div>
-        </div>
-        <label>Dizziness</label>
-        <div class="chip-row" id="dizzyRow">
-          <div class="chip" data-val="mild">Mild</div>
-          <div class="chip" data-val="moderate">Moderate</div>
-          <div class="chip" data-val="severe">Severe</div>
-        </div>
-        <label>Other symptoms</label>
-        <div class="chip-row" id="symptomsRow">
-          <div class="chip" data-val="nausea">Nausea</div>
-          <div class="chip" data-val="light_sensitivity">Light sensitivity</div>
-          <div class="chip" data-val="sound_sensitivity">Sound sensitivity</div>
-          <div class="chip" data-val="smell_sensitivity">Smell sensitivity</div>
-          <div class="chip" data-val="visual_aura">Visual aura</div>
-          <div class="chip" data-val="neck_pain">Neck pain</div>
-          <div class="chip" data-val="vomiting">Vomiting</div>
-        </div>
-        <label>Notes (optional)</label>
-        <input type="text" id="headacheNote" placeholder="location of pain, anything unusual">
-      </div>
-
-      <div id="fields-prodrome" class="type-fields" style="display:none;">
-        <div class="analysis-note" style="margin-bottom:8px;">Early-warning signs can show up 24–48 hrs before a migraine — logging these separately from the headache itself often reveals the real pattern.</div>
-        <label>What are you noticing?</label>
-        <div class="chip-row" id="prodromeRow">
-          <div class="chip" data-val="fatigue">Fatigue</div>
-          <div class="chip" data-val="neck_stiffness">Neck stiffness</div>
-          <div class="chip" data-val="light_sensitivity">Light sensitivity</div>
-          <div class="chip" data-val="sound_sensitivity">Sound sensitivity</div>
-          <div class="chip" data-val="mood_change">Mood change</div>
-          <div class="chip" data-val="food_craving">Food craving</div>
-          <div class="chip" data-val="yawning">Excess yawning</div>
-          <div class="chip" data-val="concentration">Trouble concentrating</div>
-          <div class="chip" data-val="dizziness">Dizziness</div>
-          <div class="chip" data-val="nausea">Nausea</div>
-        </div>
-        <label>Note (optional)</label>
-        <input type="text" id="prodromeNote" placeholder="anything else you're noticing">
-      </div>
-
-      <div id="fields-meds" class="type-fields" style="display:none;">
-        <label>Medication name</label>
-        <input type="text" id="medName" placeholder="e.g. Sumatriptan, ibuprofen">
-        <label>Category</label>
-        <div class="chip-row" id="medCategoryRow">
-          <div class="chip" data-val="preventive">Preventive (daily)</div>
-          <div class="chip" data-val="acute">Acute / rescue</div>
-          <div class="chip" data-val="supplement">Supplement</div>
-          <div class="chip" data-val="other">Other</div>
-        </div>
-        <label>Dose (optional)</label>
-        <input type="text" id="medDetail" placeholder="e.g. 10mg">
-        <label style="margin-top:12px;"><input type="checkbox" id="medSaveCatalog" style="width:auto; display:inline; margin-right:6px;">Remember this medication for quick check-off next time</label>
-      </div>
-
-      <div id="fields-sleep" class="type-fields" style="display:none;">
-        <div class="row2">
-          <div><label>Bedtime</label><input type="time" id="bedtime"></div>
-          <div><label>Wake time</label><input type="time" id="waketime"></div>
-        </div>
-        <label>Sleep quality</label>
-        <div class="chip-row" id="sleepQuality">
-          <div class="chip" data-val="poor">Poor</div>
-          <div class="chip" data-val="fair">Fair</div>
-          <div class="chip" data-val="good">Good</div>
-          <div class="chip" data-val="great">Great</div>
-        </div>
-        <label>How did you feel waking up?</label>
-        <div class="chip-row" id="wakeFeelingRow">
-          <div class="chip" data-val="refreshed">Refreshed</div>
-          <div class="chip" data-val="ok">OK</div>
-          <div class="chip" data-val="groggy">Groggy</div>
-          <div class="chip" data-val="exhausted">Exhausted</div>
-          <div class="chip" data-val="headache_on_waking">Woke with headache</div>
-        </div>
-        <label>Woke up / napped mid-sleep? (optional)</label>
-        <div id="interruptionsList"></div>
-        <button type="button" class="btn small ghost" id="addInterruptionBtn"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-plus"></use></svg> Add interruption</button>
-        <label>Note (optional — e.g. Whoop sleep score)</label>
-        <input type="text" id="sleepNote" placeholder="e.g. Whoop score 78">
-      </div>
-
-      <div id="fields-workout" class="type-fields" style="display:none;">
-        <label>Activity</label>
-        <input type="text" id="workoutActivity" placeholder="e.g. Run, cycling, strength">
-        <div class="row2">
-          <div><label>Duration (min)</label><input type="number" id="workoutDuration" min="0"></div>
-          <div><label>Perceived intensity (1-10)</label><input type="number" id="workoutStrain" min="0" max="10" step="1"></div>
-        </div>
-        <div class="row2">
-          <div><label>Avg heart rate (optional)</label><input type="number" id="workoutHr" min="0"></div>
-          <div><label>Calories (optional)</label><input type="number" id="workoutCalories" min="0"></div>
-        </div>
-        <label>Note (optional)</label>
-        <input type="text" id="workoutNote" placeholder="optional detail">
-      </div>
-
-      <div id="fields-period" class="type-fields" style="display:none;">
-        <label>Flow</label>
-        <div class="chip-row" id="flowRow">
-          <div class="chip" data-val="spotting">Spotting</div>
-          <div class="chip" data-val="light">Light</div>
-          <div class="chip" data-val="medium">Medium</div>
-          <div class="chip" data-val="heavy">Heavy</div>
-        </div>
-        <label>Note (optional — cramps, mood, etc.)</label>
-        <input type="text" id="periodNote" placeholder="optional">
-      </div>
-
-      <div id="fields-hydration" class="type-fields" style="display:none;">
-        <label>Amount</label>
-        <div class="chip-row">
-          <div class="chip" data-preset="8">+8oz (1 cup)</div>
-          <div class="chip" data-preset="16">+16oz</div>
-          <div class="chip" data-preset="32">+32oz</div>
-        </div>
-        <label>Or enter oz</label>
-        <input type="number" id="hydrationAmount" min="0">
-      </div>
-
-      <div id="fields-note" class="type-fields" style="display:none;">
-        <label>Stress level</label>
-        <div class="chip-row" id="stressRow">
-          <div class="chip" data-val="low">Low</div>
-          <div class="chip" data-val="medium">Medium</div>
-          <div class="chip" data-val="high">High</div>
-        </div>
-        <label>Free note</label>
-        <textarea id="noteText" placeholder="screen time, weather, travel, anything else..."></textarea>
-      </div>
-
-      <button class="btn" id="addEntryBtn">Add to log</button>
-      <button class="btn cancel" id="cancelEditBtn" style="display:none;">Cancel edit</button>
+    <div class="tiles">
+      <button type="button" class="tile" data-sheet="food"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><use href="#icon-food"></use></svg><span class="tile-name">Food</span><span class="tile-status"></span></button>
+      <button type="button" class="tile" data-sheet="sleep"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><use href="#icon-sleep"></use></svg><span class="tile-name">Sleep</span><span class="tile-status"></span></button>
+      <button type="button" class="tile" data-sheet="meds"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><use href="#icon-meds"></use></svg><span class="tile-name">Meds</span><span class="tile-status"></span></button>
+      <button type="button" class="tile" data-sheet="more"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><use href="#icon-plus"></use></svg><span class="tile-name">More</span><span class="tile-status"></span></button>
     </div>
 
     <div class="card">
-      <h2>Today's entries</h2>
+      <h2 id="loggedHeading">Logged today</h2>
       <div id="todayList"></div>
     </div>
   </div>
@@ -298,7 +121,7 @@
     <div id="historyList"></div>
   </div>
 
-  <div id="tab-analysis" style="display:none;">
+  <div id="tab-insights" style="display:none;">
     <div class="card"><h2>Progress</h2><div class="analysis-note" id="progressNote"></div></div>
     <div class="card" id="mohWarnCard" style="display:none;"></div>
     <div class="card">
@@ -316,7 +139,231 @@
   </div>
 
 </main>
+
+<nav aria-label="Main">
+  <button class="active" data-tab="today">Today</button>
+  <button data-tab="history">History</button>
+  <button data-tab="insights">Insights</button>
+</nav>
 </div>
+
+<!-- ENTRY SHEET: one short form for one entry type, opened by openSheet() -->
+<dialog id="sheet" class="sheet" aria-labelledby="sheetTitle">
+  <div class="sheet-head">
+    <div>
+      <h2 id="sheetTitle">Food</h2>
+      <div class="sub" id="sheetDay" hidden></div>
+    </div>
+    <button type="button" class="sheet-close" id="sheetClose" aria-label="Close"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><use href="#icon-x"></use></svg></button>
+  </div>
+
+  <div id="moreList" class="more-list" hidden>
+    <button type="button" class="more-item" data-more="hydration"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><use href="#icon-hydration"></use></svg><span>Water</span></button>
+    <button type="button" class="more-item" data-more="period"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><use href="#icon-period"></use></svg><span>Period</span></button>
+    <button type="button" class="more-item" data-more="prodrome"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><use href="#icon-prodrome"></use></svg><span>Early signs</span></button>
+    <button type="button" class="more-item" data-more="workout"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><use href="#icon-workout"></use></svg><span>Exercise</span></button>
+    <button type="button" class="more-item" data-more="note"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><use href="#icon-note"></use></svg><span>Note</span></button>
+  </div>
+
+  <form id="sheetForm" novalidate>
+      <div id="fields-food" class="type-fields" hidden>
+        <label for="foodText">What did you have?</label>
+        <input type="text" id="foodText" placeholder="e.g. 2 eggs, egg whites, buttered pan" autofocus>
+      </div>
+
+      <div id="fields-headache" class="type-fields" hidden>
+        <label>Severity</label>
+        <div class="severity" id="severityRow">
+          <button type="button" class="sev-btn" data-val="1">1</button><button type="button" class="sev-btn" data-val="2">2</button>
+          <button type="button" class="sev-btn" data-val="3">3</button><button type="button" class="sev-btn" data-val="4">4</button>
+          <button type="button" class="sev-btn" data-val="5">5</button><button type="button" class="sev-btn" data-val="6">6</button>
+          <button type="button" class="sev-btn" data-val="7">7</button><button type="button" class="sev-btn" data-val="8">8</button>
+          <button type="button" class="sev-btn" data-val="9">9</button><button type="button" class="sev-btn" data-val="10">10</button>
+        </div>
+        <details class="more-detail">
+          <summary>More detail</summary>
+          <label for="headacheDuration">Duration (hours, optional — leave blank if still ongoing)</label>
+          <input type="number" id="headacheDuration" min="0" step="0.5">
+          <label>Brain fog</label>
+          <div class="chip-row" id="fogRow">
+            <button type="button" class="chip" data-val="mild">Mild</button>
+            <button type="button" class="chip" data-val="moderate">Moderate</button>
+            <button type="button" class="chip" data-val="severe">Severe</button>
+          </div>
+          <label>Dizziness</label>
+          <div class="chip-row" id="dizzyRow">
+            <button type="button" class="chip" data-val="mild">Mild</button>
+            <button type="button" class="chip" data-val="moderate">Moderate</button>
+            <button type="button" class="chip" data-val="severe">Severe</button>
+          </div>
+          <label>Other symptoms</label>
+          <div class="chip-row" id="symptomsRow">
+            <button type="button" class="chip" data-val="nausea">Nausea</button>
+            <button type="button" class="chip" data-val="light_sensitivity">Light sensitivity</button>
+            <button type="button" class="chip" data-val="sound_sensitivity">Sound sensitivity</button>
+            <button type="button" class="chip" data-val="smell_sensitivity">Smell sensitivity</button>
+            <button type="button" class="chip" data-val="visual_aura">Visual aura</button>
+            <button type="button" class="chip" data-val="neck_pain">Neck pain</button>
+            <button type="button" class="chip" data-val="vomiting">Vomiting</button>
+          </div>
+          <label for="headacheNote">Notes (optional)</label>
+          <input type="text" id="headacheNote" placeholder="location of pain, anything unusual">
+        </details>
+      </div>
+
+      <div id="fields-prodrome" class="type-fields" hidden>
+        <label>What are you noticing?</label>
+        <div class="chip-row" id="prodromeRow">
+          <button type="button" class="chip" data-val="fatigue">Fatigue</button>
+          <button type="button" class="chip" data-val="neck_stiffness">Neck stiffness</button>
+          <button type="button" class="chip" data-val="light_sensitivity">Light sensitivity</button>
+          <button type="button" class="chip" data-val="sound_sensitivity">Sound sensitivity</button>
+          <button type="button" class="chip" data-val="mood_change">Mood change</button>
+          <button type="button" class="chip" data-val="food_craving">Food craving</button>
+          <button type="button" class="chip" data-val="yawning">Excess yawning</button>
+          <button type="button" class="chip" data-val="concentration">Trouble concentrating</button>
+          <button type="button" class="chip" data-val="dizziness">Dizziness</button>
+          <button type="button" class="chip" data-val="nausea">Nausea</button>
+        </div>
+        <details class="more-detail">
+          <summary>More detail</summary>
+          <div class="analysis-note">Early-warning signs can show up 24–48 hrs before a migraine — logging these separately from the headache itself often reveals the real pattern.</div>
+          <label for="prodromeNote">Note (optional)</label>
+          <input type="text" id="prodromeNote" placeholder="anything else you're noticing">
+        </details>
+      </div>
+
+      <div id="fields-meds" class="type-fields" hidden>
+        <div id="quickMedsBlock">
+          <label>Tap what you took</label>
+          <div class="chip-row" id="quickMedsRow"></div>
+          <div id="quickMedsEmpty" class="analysis-note" hidden>No saved medications yet. Use "Meds list" at the top of the app to add ones you take regularly.</div>
+        </div>
+        <details class="more-detail" id="medOther">
+          <summary>Something else</summary>
+          <label for="medName">Medication name</label>
+          <input type="text" id="medName" placeholder="e.g. Sumatriptan, ibuprofen">
+          <label>Category</label>
+          <div class="chip-row" id="medCategoryRow">
+            <button type="button" class="chip" data-val="preventive">Preventive (daily)</button>
+            <button type="button" class="chip" data-val="acute">Acute / rescue</button>
+            <button type="button" class="chip" data-val="supplement">Supplement</button>
+            <button type="button" class="chip" data-val="other">Other</button>
+          </div>
+          <label for="medDetail">Dose (optional)</label>
+          <input type="text" id="medDetail" placeholder="e.g. 10mg">
+          <label class="check-label"><input type="checkbox" id="medSaveCatalog">Remember this medication for quick check-off next time</label>
+        </details>
+      </div>
+
+      <div id="fields-sleep" class="type-fields" hidden>
+        <div class="row2">
+          <div><label for="bedtime">Bedtime</label><input type="time" id="bedtime"></div>
+          <div><label for="waketime">Wake time</label><input type="time" id="waketime"></div>
+        </div>
+        <details class="more-detail">
+          <summary>More detail</summary>
+          <label>Sleep quality</label>
+          <div class="chip-row" id="sleepQuality">
+            <button type="button" class="chip" data-val="poor">Poor</button>
+            <button type="button" class="chip" data-val="fair">Fair</button>
+            <button type="button" class="chip" data-val="good">Good</button>
+            <button type="button" class="chip" data-val="great">Great</button>
+          </div>
+          <label>How did you feel waking up?</label>
+          <div class="chip-row" id="wakeFeelingRow">
+            <button type="button" class="chip" data-val="refreshed">Refreshed</button>
+            <button type="button" class="chip" data-val="ok">OK</button>
+            <button type="button" class="chip" data-val="groggy">Groggy</button>
+            <button type="button" class="chip" data-val="exhausted">Exhausted</button>
+            <button type="button" class="chip" data-val="headache_on_waking">Woke with headache</button>
+          </div>
+          <label>Woke up / napped mid-sleep? (optional)</label>
+          <div id="interruptionsList"></div>
+          <button type="button" class="btn small ghost" id="addInterruptionBtn"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><use href="#icon-plus"></use></svg> Add interruption</button>
+          <label for="sleepNote">Note (optional — e.g. Whoop sleep score)</label>
+          <input type="text" id="sleepNote" placeholder="e.g. Whoop score 78">
+        </details>
+      </div>
+
+      <div id="fields-workout" class="type-fields" hidden>
+        <label for="workoutActivity">Activity</label>
+        <input type="text" id="workoutActivity" placeholder="e.g. Run, cycling, strength">
+        <label for="workoutDuration">Duration (min)</label>
+        <input type="number" id="workoutDuration" min="0">
+        <details class="more-detail">
+          <summary>More detail</summary>
+          <label for="workoutStrain">Perceived intensity (1-10)</label>
+          <input type="number" id="workoutStrain" min="0" max="10" step="1">
+          <div class="row2">
+            <div><label for="workoutHr">Avg heart rate (optional)</label><input type="number" id="workoutHr" min="0"></div>
+            <div><label for="workoutCalories">Calories (optional)</label><input type="number" id="workoutCalories" min="0"></div>
+          </div>
+          <label for="workoutNote">Note (optional)</label>
+          <input type="text" id="workoutNote" placeholder="optional detail">
+        </details>
+      </div>
+
+      <div id="fields-period" class="type-fields" hidden>
+        <label>Flow</label>
+        <div class="chip-row" id="flowRow">
+          <button type="button" class="chip" data-val="spotting">Spotting</button>
+          <button type="button" class="chip" data-val="light">Light</button>
+          <button type="button" class="chip" data-val="medium">Medium</button>
+          <button type="button" class="chip" data-val="heavy">Heavy</button>
+        </div>
+        <details class="more-detail">
+          <summary>More detail</summary>
+          <label for="periodNote">Note (optional — cramps, mood, etc.)</label>
+          <input type="text" id="periodNote" placeholder="optional">
+        </details>
+      </div>
+
+      <div id="fields-hydration" class="type-fields" hidden>
+        <label>Amount</label>
+        <div class="chip-row">
+          <button type="button" class="chip" data-preset="8">+8oz (1 cup)</button>
+          <button type="button" class="chip" data-preset="16">+16oz</button>
+          <button type="button" class="chip" data-preset="32">+32oz</button>
+        </div>
+        <label for="hydrationAmount">Or enter oz</label>
+        <input type="number" id="hydrationAmount" min="0">
+      </div>
+
+      <div id="fields-note" class="type-fields" hidden>
+        <label>Stress level</label>
+        <div class="chip-row" id="stressRow">
+          <button type="button" class="chip" data-val="low">Low</button>
+          <button type="button" class="chip" data-val="medium">Medium</button>
+          <button type="button" class="chip" data-val="high">High</button>
+        </div>
+        <label for="noteText">Free note</label>
+        <textarea id="noteText" placeholder="screen time, weather, travel, anything else..."></textarea>
+      </div>
+
+      <details class="more-detail" id="screenshotRow" hidden>
+        <summary>Use a screenshot</summary>
+        <label for="screenshotFile">Upload a screenshot (Chronometer / MyFitnessPal / Whoop / Apple Watch) — AI drafts the fields for you to check</label>
+        <input type="file" id="screenshotFile" accept="image/*">
+        <div id="screenshotStatus" class="sub"></div>
+      </details>
+
+      <div class="sheet-time">
+        <button type="button" class="link-btn" id="changeTimeBtn">Now · change time</button>
+        <div id="timeField" hidden>
+          <label for="entryTime">Time</label>
+          <input type="time" id="entryTime">
+        </div>
+      </div>
+
+      <div class="warn-box" id="sheetError" role="alert" hidden>
+        <div id="sheetErrorText"></div>
+        <button type="button" class="btn small" id="sheetRetryBtn">Retry</button>
+      </div>
+
+      <button type="submit" class="btn" id="sheetSaveBtn">Save</button>
+  </form>
+</dialog>
 
 <!-- MEDS SETTINGS MODAL -->
 <div id="medsModal" style="display:none; position:fixed; inset:0; background:var(--backdrop); z-index:100;">
@@ -324,16 +371,16 @@
     <h2 style="margin-top:0;">Your medications</h2>
     <div id="medsCatalogList"></div>
     <hr style="border-color:var(--line); margin:16px 0;">
-    <label>Name</label>
+    <label for="newMedName">Name</label>
     <input type="text" id="newMedName" placeholder="e.g. Sumatriptan">
     <label>Category</label>
     <div class="chip-row" id="newMedCategoryRow">
-      <div class="chip on" data-val="preventive">Preventive</div>
-      <div class="chip" data-val="acute">Acute/rescue</div>
-      <div class="chip" data-val="supplement">Supplement</div>
-      <div class="chip" data-val="other">Other</div>
+      <button type="button" class="chip on" data-val="preventive">Preventive</button>
+      <button type="button" class="chip" data-val="acute">Acute/rescue</button>
+      <button type="button" class="chip" data-val="supplement">Supplement</button>
+      <button type="button" class="chip" data-val="other">Other</button>
     </div>
-    <label>Default dose (optional)</label>
+    <label for="newMedDose">Default dose (optional)</label>
     <input type="text" id="newMedDose" placeholder="e.g. 10mg">
     <button class="btn" id="saveNewMedBtn">Add medication</button>
     <button class="btn ghost" id="closeMedsModalBtn" style="width:100%; margin-top:8px; text-align:center;">Close</button>

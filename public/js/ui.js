@@ -13,7 +13,7 @@ export function svgIcon(id, size){ size = size || 14; return '<svg class="icon" 
 export function xIcon(){ return svgIcon('x', 13); }
 
 // ---------- Tabs ----------
-const TAB_IDS = {log:'tab-log', history:'tab-history', analysis:'tab-analysis'};
+const TAB_IDS = {today:'tab-today', history:'tab-history', insights:'tab-insights'};
 
 export function activateTab(tab){
   $$('nav button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
@@ -22,20 +22,24 @@ export function activateTab(tab){
 }
 
 // ---------- Chip helpers ----------
+export function setOn(el, on){
+  el.classList.toggle('on', on);
+  el.setAttribute('aria-pressed', on ? 'true' : 'false');
+}
 export function singleSelect(container){
   container.querySelectorAll('.chip').forEach(chip=>{
     chip.addEventListener('click', ()=>{
       const wasOn = chip.classList.contains('on');
-      container.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));
-      if(!wasOn) chip.classList.add('on');
+      container.querySelectorAll('.chip').forEach(c=>setOn(c, false));
+      if(!wasOn) setOn(chip, true);
     });
   });
 }
 export function multiSelect(container){
   container.querySelectorAll('.chip').forEach(chip=>{
-    chip.addEventListener('click', ()=> chip.classList.toggle('on'));
+    chip.addEventListener('click', ()=> setOn(chip, !chip.classList.contains('on')));
   });
 }
 export function getSingle(sel){ const on = $(sel).querySelector('.chip.on'); return on ? on.dataset.val : null; }
 export function getMulti(sel){ return $$(sel+' .chip.on').map(c=>c.dataset.val); }
-export function setChip(sel, val){ const c = $(sel).querySelector(`.chip[data-val="${val}"]`); if(c) c.classList.add('on'); }
+export function setChip(sel, val){ const c = $(sel).querySelector(`.chip[data-val="${val}"]`); if(c) setOn(c, true); }

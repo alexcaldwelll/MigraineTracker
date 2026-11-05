@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { localDate, shiftDate } from "../public/js/dates.js";
+import { dayTitle, localDate, shiftDate, shortDate } from "../public/js/dates.js";
 
 function inZone(t, zone) {
   const previous = process.env.TZ;
@@ -41,4 +41,15 @@ test("shiftDate crosses month and year ends", (t) => {
   inZone(t, "Asia/Tokyo");
   assert.equal(shiftDate("2026-11-30", 1), "2026-12-01");
   assert.equal(shiftDate("2027-01-01", -1), "2026-12-31");
+});
+
+test("shortDate reads like the Today header", () => {
+  assert.equal(shortDate("2026-11-04"), "Wed, Nov 4");
+});
+
+test("dayTitle names the days near today, then the weekday", () => {
+  assert.equal(dayTitle("2026-11-04", "2026-11-04"), "Today");
+  assert.equal(dayTitle("2026-11-03", "2026-11-04"), "Yesterday");
+  assert.equal(dayTitle("2026-11-05", "2026-11-04"), "Tomorrow");
+  assert.equal(dayTitle("2026-11-01", "2026-11-04"), "Sunday");
 });

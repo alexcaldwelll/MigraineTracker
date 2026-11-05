@@ -1,12 +1,17 @@
-// The add/edit form: type chips, field wiring, building an entry, and filling
-// fields from a screenshot.
+// The entry sheet: one short form for one entry type, used for adding and
+// editing, plus saving, field wiring and filling fields from a screenshot.
 import { data, emptyOnError } from './data.js';
-import { nowTime } from './dates.js';
-import { $, $$, escapeHtml, xIcon, singleSelect, multiSelect, getSingle, getMulti, setChip } from './ui.js';
+import { localDate, nowTime, shortDate } from './dates.js';
+import { $, $$, escapeHtml, xIcon, singleSelect, multiSelect, getSingle, getMulti, setChip, setOn } from './ui.js';
+
+const SHEET_TITLES = {food:'Food', headache:'Headache', prodrome:'Early signs', meds:'Meds', sleep:'Sleep', workout:'Exercise', period:'Period', hydration:'Water', note:'Note'};
+const SCREENSHOT_TYPES = ['food','sleep','workout'];
 
 let currentType = 'food';
 let editingId = null;
+let saving = false;
 let interruptions = [];
+const draftTimes = {};      // a time set in one type's sheet stays with that type
 let onEntrySaved = ()=>{};  // an entry was added or updated
 let onMedSaved = ()=>{};    // the meds catalog grew
 
@@ -14,9 +19,9 @@ let onMedSaved = ()=>{};    // the meds catalog grew
 function renderInterruptions(){
   $('#interruptionsList').innerHTML = interruptions.map((it,i)=>`
     <div class="interruption-row">
-      <input type="time" value="${escapeHtml(it.time||'')}" data-i="${i}" data-f="time">
-      <input type="text" placeholder="e.g. woke up, nap" value="${escapeHtml(it.note||'')}" data-i="${i}" data-f="note">
-      <span class="x" data-i="${i}">${xIcon()}</span>
+      <input type="time" value="${escapeHtml(it.time||'')}" data-i="${i}" data-f="time" aria-label="Interruption time">
+      <input type="text" placeholder="e.g. woke up, nap" value="${escapeHtml(it.note||'')}" data-i="${i}" data-f="note" aria-label="Interruption note">
+      <button type="button" class="x" data-i="${i}" aria-label="Remove interruption">${xIcon()}</button>
     </div>`).join('');
   $('#interruptionsList').querySelectorAll('input').forEach(inp=>{
     inp.addEventListener('input', ()=>{
@@ -59,16 +64,17 @@ function buildEntry(){
     if(!name) return null;
     const category = getSingle('#medCategoryRow') || 'other';
     const dose = $('#medDetail').value.trim() || null;
-    if($('#medSaveCatalog').checked) saveMedToCatalog(name, category, dose);
     return {...base, name, category, dose};
   }
   if(currentType==='sleep'){
     const bed = $('#bedtime').value, wake = $('#waketime').value;
+    const quality = getSingle('#sleepQuality'), wakeFeeling = getSingle('#wakeFeelingRow');
+    const kept = interruptions.filter(it=>it.time||it.note);
+    const note = $('#sleepNote').value.trim() || null;
+    if(!bed && !wake && !quality && !wakeFeeling && kept.length===0 && !note) return null;
     return {...base, bedtime: bed||null, waketime: wake||null,
-      quality: getSingle('#sleepQuality'), hours: computeSleepHours(bed, wake),
-      wakeFeeling: getSingle('#wakeFeelingRow'),
-      interruptions: interruptions.filter(it=>it.time||it.note),
-      note: $('#sleepNote').value.trim() || null };
+      quality, hours: computeSleepHours(bed, wake),
+      wakeFeeling, interruptions: kept, note };
   }
   if(currentType==='workout'){
     const activity = $('#workoutActivity').value.trim();
@@ -105,53 +111,50 @@ function computeSleepHours(bed, wake){
   if(diff<=0) diff += 24*60;
   return Math.round((diff/60)*10)/10;
 }
-function clearTypeFields(){
-  $('#entryTime').value='';
-  $('#foodText').value='';
-  $$('#severityRow .sev-btn').forEach(c=>c.classList.remove('on'));
-  $('#headacheDuration').value='';
-  $$('#fogRow .chip').forEach(c=>c.classList.remove('on'));
-  $$('#dizzyRow .chip').forEach(c=>c.classList.remove('on'));
-  $$('#symptomsRow .chip').forEach(c=>c.classList.remove('on'));
-  $('#headacheNote').value='';
-  $$('#prodromeRow .chip').forEach(c=>c.classList.remove('on'));
-  $('#prodromeNote').value='';
-  $('#medName').value=''; $$('#medCategoryRow .chip').forEach(c=>c.classList.remove('on'));
-  $('#medDetail').value=''; $('#medSaveCatalog').checked=false;
-  $('#bedtime').value=''; $('#waketime').value='';
-  $$('#sleepQuality .chip').forEach(c=>c.classList.remove('on'));
-  $$('#wakeFeelingRow .chip').forEach(c=>c.classList.remove('on'));
-  interruptions=[]; renderInterruptions();
-  $('#sleepNote').value='';
-  $('#workoutActivity').value=''; $('#workoutDuration').value='';
-  $('#workoutStrain').value=''; $('#workoutHr').value=''; $('#workoutCalories').value='';
-  $('#workoutNote').value='';
-  $$('#flowRow .chip').forEach(c=>c.classList.remove('on'));
-  $('#periodNote').value='';
-  $('#hydrationAmount').value='';
-  $$('#stressRow .chip').forEach(c=>c.classList.remove('on'));
-  $('#noteText').value='';
-  $('#screenshotFile').value=''; $('#screenshotStatus').textContent='';
+// Clears one type's sheet. Other types keep their drafts.
+function clearDraft(type){
+  const scope = '#fields-'+type;
+  $$(scope+' input, '+scope+' textarea').forEach(f=>{
+    if(f.type==='checkbox') f.checked = false; else f.value = '';
+  });
+  $$(scope+' .chip[data-val], '+scope+' .sev-btn').forEach(c=>setOn(c, false));
+  $$(scope+' details').forEach(d=>{ d.open = false; });
+  if(type==='sleep'){ interruptions = []; renderInterruptions(); }
+  draftTimes[type] = '';
+  if(type===currentType){
+    $('#entryTime').value = '';
+    showTimeField(false);
+    resetScreenshot();
+  }
 }
 
 // ---------- Saving ----------
-export async function addEntry(date, entry){
+function failureMessage(error){
+  return (error && error.message) || 'Something went wrong.';
+}
+export async function submitEntry(date, entry){
   try{
     await data().add(date, entry);
-    return true;
+    return { ok: true };
   }catch(error){
-    alert('Save failed: ' + error.message); console.error(error);
-    return false;
+    console.error(error);
+    return { ok: false, error: failureMessage(error) };
   }
 }
-async function updateEntry(id, date, entry){
+async function submitUpdate(id, date, entry){
   try{
     await data().update(id, date, entry);
-    return true;
+    return { ok: true };
   }catch(error){
-    alert('Update failed: ' + error.message); console.error(error);
-    return false;
+    console.error(error);
+    return { ok: false, error: failureMessage(error) };
   }
+}
+// The only place that decides a draft may go: after the save has succeeded.
+export async function commitDraft({ id, date, entry }, clear){
+  const result = id ? await submitUpdate(id, date, entry) : await submitEntry(date, entry);
+  if(result.ok) clear();
+  return result;
 }
 async function saveMedToCatalog(name, category, dose){
   const existing = await emptyOnError(data().listMeds());
@@ -160,27 +163,157 @@ async function saveMedToCatalog(name, category, dose){
   onMedSaved();
 }
 
-function exitEditMode(){
-  editingId = null;
-  $('#formHeading').textContent = 'Add an entry';
-  $('#addEntryBtn').textContent = 'Add to log';
-  $('#cancelEditBtn').style.display='none';
-  $$('#typeRow .type-chip').forEach(c=> c.style.opacity='1');
+// ---------- Sheet messages ----------
+function showSheetError(message, retry){
+  $('#sheetErrorText').textContent = message;
+  $('#sheetRetryBtn').hidden = !retry;
+  $('#sheetRetryBtn').onclick = retry || null;
+  $('#sheetError').hidden = false;
+}
+function hideSheetError(){ $('#sheetError').hidden = true; }
+const notSavedMessage = error => `Not saved: ${error} What you entered is still here.`;
+
+// Blocks a second save, so a double tap cannot log something twice.
+async function whileSaving(send){
+  saving = true;
+  hideSheetError();
+  const btn = $('#sheetSaveBtn'), label = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try{
+    return await send();
+  }finally{
+    saving = false;
+    btn.disabled = false; btn.textContent = label;
+  }
 }
 
-function selectType(type){
-  const chip = $(`#typeRow .type-chip[data-val="${type}"]`);
-  if(!chip) return;
-  $('#typeRow').querySelectorAll('.type-chip').forEach(c=>c.classList.remove('on'));
-  chip.classList.add('on');
+async function saveSheet(){
+  if(saving) return;
+  const entry = buildEntry();
+  if(!entry){
+    $$('#fields-'+currentType+' details').forEach(d=>{ d.open = true; });
+    showSheetError('Add at least one detail before saving.');
+    return;
+  }
+  const type = currentType, id = editingId, date = $('#entryDate').value;
+  const remember = type==='meds' && $('#medSaveCatalog').checked;
+  const result = await whileSaving(()=> commitDraft({ id, date, entry }, ()=>{
+    editingId = null;
+    clearDraft(type);
+  }));
+  if(!result.ok){
+    // A retry later must keep the time of this attempt, not the time of the retry.
+    $('#entryTime').value = entry.time;
+    showTimeField(true);
+    presentSheet();  // Escape can still close the sheet during a save
+    showSheetError(notSavedMessage(result.error), saveSheet);
+    return;
+  }
+  if(remember) saveMedToCatalog(entry.name, entry.category, entry.dose);
+  closeSheet();
+  onEntrySaved();
+}
+
+// A tap on a saved medication logs it at once and leaves the sheet open, so
+// several can be ticked off together.
+export async function logQuickMed(med){
+  if(saving) return;
+  const date = $('#entryDate').value;
+  const entry = { type:'meds', time: $('#entryTime').value || nowTime(), ...med };
+  const send = async ()=>{
+    const result = await whileSaving(()=> submitEntry(date, entry));
+    if(result.ok) onEntrySaved();
+    else{
+      presentSheet();
+      showSheetError(`Not saved: ${result.error}`, send);
+    }
+  };
+  await send();
+}
+
+// ---------- The sheet ----------
+function presentSheet(){
+  if(!$('#sheet').open) $('#sheet').showModal();
+}
+function closeSheet(){
+  if(!saving && $('#sheet').open) $('#sheet').close();
+}
+function showTimeField(show){
+  $('#timeField').hidden = !show;
+  $('#changeTimeBtn').hidden = show;
+}
+function resetScreenshot(){
+  $('#screenshotRow').open = false;
+  $('#screenshotFile').value = '';
+  $('#screenshotStatus').textContent = '';
+}
+function showType(type){
+  draftTimes[currentType] = $('#entryTime').value;
   currentType = type;
-  $$('.type-fields').forEach(f=>f.style.display='none');
-  $('#fields-'+type).style.display='block';
-  $('#screenshotRow').style.display = ['food','sleep','workout'].includes(type) ? 'block' : 'none';
+  $('#entryTime').value = draftTimes[type] || '';
+  showTimeField(Boolean($('#entryTime').value));
+  $$('.type-fields').forEach(f=>{ f.hidden = f.id !== 'fields-'+type; });
+  $('#screenshotRow').hidden = !SCREENSHOT_TYPES.includes(type);
+  resetScreenshot();
+  $('#quickMedsBlock').hidden = Boolean(editingId);
+  syncSaveButton();
+}
+// A tap on the quick list saves by itself, so Save only appears for typing one in.
+function syncSaveButton(){
+  $('#sheetSaveBtn').hidden = currentType==='meds' && !$('#medOther').open;
+}
+function showSheetDay(){
+  const date = $('#entryDate').value;
+  $('#sheetDay').hidden = date===localDate();
+  $('#sheetDay').textContent = `For ${shortDate(date)}`;
+}
+// An edit that was closed unsaved is dropped: the stored entry is unchanged.
+function abandonEdit(){
+  if(!editingId) return;
+  editingId = null;
+  clearDraft(currentType);
 }
 
-export function populateFieldsForEdit(e){
-  selectType(e.type);
+export function openSheet(type){
+  abandonEdit();
+  hideSheetError();
+  showSheetDay();
+  const more = type==='more';
+  $('#moreList').hidden = !more;
+  $('#sheetForm').hidden = more;
+  $('#sheetTitle').textContent = more ? 'More' : SHEET_TITLES[type];
+  $('#sheetSaveBtn').textContent = 'Save';
+  if(!more) showType(type);
+  presentSheet();
+}
+
+export function openEditSheet(entry){
+  if(!SHEET_TITLES[entry.type]) return;
+  abandonEdit();
+  hideSheetError();
+  showSheetDay();
+  clearDraft(entry.type);
+  editingId = entry.id;
+  showType(entry.type);
+  fillFields(entry);
+  revealFilledDetail(entry.type);
+  showTimeField(true);
+  $('#moreList').hidden = true;
+  $('#sheetForm').hidden = false;
+  $('#sheetTitle').textContent = 'Edit ' + SHEET_TITLES[entry.type].toLowerCase();
+  $('#sheetSaveBtn').textContent = 'Save changes';
+  presentSheet();
+}
+
+// A filled field must never sit out of sight inside a collapsed section.
+function revealFilledDetail(type){
+  $$('#fields-'+type+' details').forEach(d=>{
+    const filled = Array.from(d.querySelectorAll('input, textarea')).some(f=> f.type==='checkbox' ? f.checked : f.value);
+    if(filled || d.querySelector('.chip.on, .sev-btn.on')) d.open = true;
+  });
+}
+
+function fillFields(e){
   $('#entryTime').value = e.time || '';
   if(e.type==='food') $('#foodText').value = e.text||'';
   if(e.type==='headache'){
@@ -226,13 +359,8 @@ export function populateFieldsForEdit(e){
     if(e.stress) setChip('#stressRow', e.stress);
     $('#noteText').value = e.text||'';
   }
-  editingId = e.id;
-  $('#formHeading').textContent = 'Edit entry';
-  $('#addEntryBtn').textContent = 'Update entry';
-  $('#cancelEditBtn').style.display='block';
-  window.scrollTo({top:0, behavior:'smooth'});
 }
-function setSevChip(val){ const b = $('#severityRow').querySelector(`.sev-btn[data-val="${val}"]`); if(b) b.classList.add('on'); }
+function setSevChip(val){ const b = $('#severityRow').querySelector(`.sev-btn[data-val="${val}"]`); if(b) setOn(b, true); }
 
 // ---------- Screenshot analysis ----------
 function fileToBase64(file){
@@ -251,7 +379,8 @@ async function analyzeScreenshot(type, file){
     const mediaType = file.type || 'image/png';
     const parsed = await data().ai('read_screenshot', { type, mediaType, data: base64 });
     fillFieldsFromExtraction(type, parsed);
-    statusEl.textContent = 'Drafted below from the screenshot — check the numbers, then tap "Add to log".';
+    revealFilledDetail(type);
+    statusEl.textContent = 'Drafted from the screenshot. Check the numbers, then tap Save.';
   }catch(e){
     console.error('analyzeScreenshot error:', e);
     statusEl.textContent = 'Could not read that screenshot (' + (e && e.message ? e.message : String(e)) + '). Enter it manually instead.';
@@ -291,11 +420,12 @@ export function initForms(callbacks){
   singleSelect($('#stressRow')); singleSelect($('#flowRow'));
   singleSelect($('#medCategoryRow')); singleSelect($('#newMedCategoryRow'));
   multiSelect($('#symptomsRow')); multiSelect($('#prodromeRow'));
+  $$('.chip[data-val], .sev-btn').forEach(c=> setOn(c, c.classList.contains('on')));
   $('#severityRow').querySelectorAll('.sev-btn').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const wasOn = btn.classList.contains('on');
-      $('#severityRow').querySelectorAll('.sev-btn').forEach(b=>b.classList.remove('on'));
-      if(!wasOn) btn.classList.add('on');
+      $('#severityRow').querySelectorAll('.sev-btn').forEach(b=>setOn(b, false));
+      if(!wasOn) setOn(btn, true);
     });
   });
   // hydration presets
@@ -306,40 +436,23 @@ export function initForms(callbacks){
     });
   });
 
-  $('#typeRow').querySelectorAll('.type-chip').forEach(chip=>{
-    chip.addEventListener('click', ()=>{
-      if(editingId) return; // don't allow type switch mid-edit
-      $('#typeRow').querySelectorAll('.type-chip').forEach(c=>c.classList.remove('on'));
-      chip.classList.add('on');
-      currentType = chip.dataset.val;
-      $$('.type-fields').forEach(f=>f.style.display='none');
-      $('#fields-'+currentType).style.display='block';
-      $('#screenshotRow').style.display = ['food','sleep','workout'].includes(currentType) ? 'block' : 'none';
-      $('#screenshotStatus').textContent=''; $('#screenshotFile').value='';
-    });
-  });
-  $('#screenshotRow').style.display = ['food','sleep','workout'].includes(currentType) ? 'block' : 'none';
   $('#addInterruptionBtn').addEventListener('click', ()=>{ interruptions.push({time:'', note:''}); renderInterruptions(); });
-
-  $('#addEntryBtn').addEventListener('click', async ()=>{
-    const entry = buildEntry();
-    if(!entry){ alert('Add at least one detail before saving.'); return; }
-    const date = $('#entryDate').value;
-    let ok;
-    if(editingId){
-      ok = await updateEntry(editingId, date, entry);
-    } else {
-      ok = await addEntry(date, entry);
-    }
-    if(ok){
-      exitEditMode();
-      clearTypeFields();
-      onEntrySaved();
-      const btn = $('#addEntryBtn'); const old = btn.textContent;
-      btn.textContent = editingId ? old : 'Added'; setTimeout(()=>btn.textContent=old, 900);
-    }
+  $('#changeTimeBtn').addEventListener('click', ()=>{
+    $('#entryTime').value = nowTime();
+    showTimeField(true);
+    $('#entryTime').focus();
   });
-  $('#cancelEditBtn').addEventListener('click', ()=>{ exitEditMode(); clearTypeFields(); });
+  $$('#moreList .more-item').forEach(item=>{
+    item.addEventListener('click', ()=> openSheet(item.dataset.more));
+  });
+
+  $('#medOther').addEventListener('toggle', syncSaveButton);
+  $('#sheetForm').addEventListener('submit', (ev)=>{
+    ev.preventDefault();
+    saveSheet();
+  });
+  $('#sheetClose').addEventListener('click', closeSheet);
+  $('#sheet').addEventListener('cancel', (ev)=>{ if(saving) ev.preventDefault(); });
   $('#screenshotFile').addEventListener('change', (e)=>{
     const file = e.target.files[0];
     if(file) analyzeScreenshot(currentType, file);

@@ -4,7 +4,7 @@ import { createSupabaseBackend, setBackend } from './data.js';
 import { initForms } from './forms.js';
 import { renderHistory, initHistory } from './history.js';
 import { renderAnalysis, initInsights } from './insights.js';
-import { renderQuickMeds, renderTodayList, initToday } from './today.js';
+import { renderToday, initToday } from './today.js';
 import { $$, activateTab } from './ui.js';
 
 const SUPABASE_URL = 'https://piiahxbeqsrzagjximoh.supabase.co';
@@ -17,21 +17,20 @@ let appInitialized = false;
 function initApp(){
   if(appInitialized) return;
   appInitialized = true;
-  renderTodayList();
-  renderQuickMeds();
+  renderToday();
 }
 
 $$('nav button').forEach(btn=>{
   btn.addEventListener('click', ()=>{
     activateTab(btn.dataset.tab);
     if(btn.dataset.tab==='history') renderHistory();
-    if(btn.dataset.tab==='analysis') renderAnalysis();
+    if(btn.dataset.tab==='insights') renderAnalysis();
   });
 });
 
 initForms({
-  onEntrySaved(){ renderTodayList(); renderQuickMeds(); },
-  onMedSaved: renderQuickMeds,
+  onEntrySaved: renderToday,
+  onMedSaved: renderToday,
 });
 initToday({ onEntryDeleted: renderHistory });
 initHistory();
