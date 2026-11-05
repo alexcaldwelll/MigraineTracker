@@ -17,13 +17,13 @@ Rules for your answer:
 - Only one change at a time, for a stated period. days is the length of that period, from 7 to 28.
 - Food suggestions target a specific food or a narrow group for 2 to 4 weeks. A factor with doctor_only set is too broad to cut alone, so it can only be a doctor question.
 - Never suggest removing a whole macronutrient. Never tell them to cut carbs, protein or fat. Anything more restrictive than a narrow group becomes a doctor question.
-- Never suggest starting, stopping or changing medication. You may only suggest raising medication questions with their doctor. Keep medicines and supplements out of try_next, also_watching, keep_logging and cycle_note altogether, by name or as a kind: they belong only in doctor_questions and medication_note. medication_note reports what was logged and points to the doctor. It never tells the person what to take.
+- Never suggest starting, stopping or changing medication. You may only suggest raising medication questions with their doctor. Keep medicines and supplements out of try_next, also_watching, keep_logging and cycle_note altogether, by name or as a kind: they belong only in doctor_questions. The app adds its own note on medication use, so do not write one.
 - In those same four fields, avoid the words "dose" and "increase your", and do not mention carbs, protein or fat unless suggesting adding some. Write "drink more water" rather than "increase your water".
 - Any suggestion to have less caffeine must say to cut down gradually over a week or so, because stopping suddenly can itself trigger headaches.
 - Do not repeat a past trial that did not help.
 - factor_key is the key of the STATS.factors entry the suggestion tests, copied exactly, or null if it tests none, as with a logging suggestion.
 - confidence is "early guess", "moderate" or "strong". Copy it from that factor. With no factor, use "early guess".
-- why gives the counts behind the suggestion. also_watching holds up to 3 other things worth keeping an eye on, each with its counts. keep_logging says what missing data would help most. doctor_questions are questions the person can ask at their next visit. cycle_note and medication_note are null unless there is something to say.
+- why gives the counts behind the suggestion. also_watching holds up to 3 other things worth keeping an eye on, each with its counts. keep_logging says what missing data would help most. doctor_questions are questions the person can ask at their next visit: each one ends in a question mark and asks, rather than telling them to take, skip, switch or cut back on anything. cycle_note is null unless there is something to say.
 - Write in plain everyday language for someone with no medical training. Keep each field to one or two short sentences.`;
 
 // How much of the log Claude sees. Stats come from every entry, so this only

@@ -130,6 +130,16 @@ const CAFFEINE_NAMES = /\b(?:coffee|espresso|caffeine|latte|cappuccino|americano
 // logged as a med. Logged med names and options.medNames are added to these.
 const DOSE_WORDS = new Set(['mg','mcg','ug','g','kg','ml','iu','tablet','caplet','capsule','pill','dose']);
 const COMMON_MEDS = ['advil','aleve','aspirin','acetaminophen','excedrin','ibuprofen','motrin','naproxen','paracetamol','sumatriptan','tylenol'];
+// Migraine medicines and supplements. Unlike COMMON_MEDS these stay food factors,
+// so their counts stand, but they are never suggested and Claude may not name them.
+export const MIGRAINE_MEDS = [
+  'aimovig','ajovy','amerge','amitriptyline','axert','benadryl','botox','butalbital','butterbur','candesartan',
+  'cbd','codeine','compazine','coenzyme','coq10','depakote','emgality','feverfew','fioricet','frova',
+  'gabapentin','imitrex','magnesium','maxalt','melatonin','metoclopramide','nortriptyline','nurtec',
+  'ondansetron','oxycodone','prochlorperazine','propranolol','qulipta','reglan','relpax','reyvow',
+  'riboflavin','topamax','topiramate','tramadol','treximet','ubrelvy','valproate','verapamil',
+  'vitamin','vyepti','zofran','zomig',
+];
 
 // Wall-clock milliseconds for a stored date and time. Only ever compared with
 // each other, so it is safe that the numbers read as UTC.
@@ -471,7 +481,11 @@ const CYCLE_NOTE_MIN_SHARE = 0.5;
 const SLEEP_TITLE = 'Aim for 7+ hours of sleep';
 // The only food groups narrow enough to try cutting. The rest go to the doctor.
 const SUGGESTIBLE_TYPES = new Set(['type:dairy', 'type:sweets_snacks']);
-export const isBroadType = f => kindOf(f.key) === 'type' && !SUGGESTIBLE_TYPES.has(f.key);
+// A food logged under a group's own name is that whole group.
+const GROUP_NAMES = new Set(['fish','fruit','fruits','grain','grains','legumes','meat','meats','nuts','poultry','seafood','starches','veg','vegetables','veggies']);
+export const isBroadType = f => (kindOf(f.key) === 'type'
+  ? !SUGGESTIBLE_TYPES.has(f.key)
+  : kindOf(f.key) === 'food' && GROUP_NAMES.has(f.key.slice('food:'.length)));
 
 const HABITS = [
   { factor_key:'habit:steady_sleep', title:'Keep a steady sleep schedule' },
@@ -508,7 +522,7 @@ function factorTrial(f, stats){
 const hasSignal = f => f.key !== 'sleep:7_plus'
   && f.beforeHeadache >= MIN_HITS_TO_SUGGEST && factorP(f) <= MAX_P_TO_SUGGEST;
 
-const worthSuggesting = f => hasSignal(f) && !isBroadType(f);
+const worthSuggesting = f => hasSignal(f) && !isBroadType(f) && !mentionsMedicine(f.label, MIGRAINE_MEDS);
 
 // True for a suggestion a completed trial already showed no improvement from.
 function notHelpedBefore(pastTrials){
@@ -589,7 +603,7 @@ function cycleNote({ cycle }){
   return `${cycle.nearPeriod} of ${cycle.counted} headache days with a known cycle day fell between 2 days before and 3 days after a period start.`;
 }
 
-const medicationNote = ({ acuteMedDays30: days }) => (days >= ACUTE_FLAG_DAYS
+export const medicationNote = ({ acuteMedDays30: days }) => (days >= ACUTE_FLAG_DAYS
   ? `You logged acute medication on ${days} of the last 30 days. That is worth raising with your doctor.`
   : null);
 

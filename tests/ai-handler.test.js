@@ -273,7 +273,6 @@ const GOOD_ANSWER = {
   keep_logging: "Keep logging sleep.",
   doctor_questions: [],
   cycle_note: null,
-  medication_note: null,
 };
 
 function actionFakes({ answer = GOOD_ANSWER, callClaude, rows, meds = [], trials = [] } = {}) {
@@ -648,4 +647,24 @@ test("backfill_food matches split_food and an unknown action is refused before q
   const { handler, calls: c } = setup({ handlers: {} });
   assert.equal((await handler(request({ action: "made_up", payload: {} }))).status, 400);
   assert.deepEqual(c.consumeQuota, []);
+});
+
+const acuteDays = (count) => Array.from({ length: count }, (_, i) => ({
+  date: `2026-01-${String(i + 1).padStart(2, "0")}`, time: "08:00", type: "meds", data: { name: "Advil", category: "acute" },
+}));
+
+test("analyze replaces Claude's medication_note with the engine's", async () => {
+  const answer = { ...GOOD_ANSWER, medication_note: "Take more ibuprofen when a headache starts." };
+  const { actions } = actionFakes({ answer, rows: acuteDays(9) });
+  const { result, source } = await actions.analyze({ today: "2026-01-20" }, { token: "good-token" });
+  assert.equal(source, "ai");
+  assert.equal(result.medication_note, "You logged acute medication on 9 of the last 30 days. That is worth raising with your doctor.");
+});
+
+test("analyze shows no medication note below the flag line, whatever Claude wrote", async () => {
+  const answer = { ...GOOD_ANSWER, medication_note: "Switch to naproxen." };
+  const { actions } = actionFakes({ answer, rows: acuteDays(2) });
+  const { result, source } = await actions.analyze({ today: "2026-01-20" }, { token: "good-token" });
+  assert.equal(source, "ai");
+  assert.equal(result.medication_note, null);
 });

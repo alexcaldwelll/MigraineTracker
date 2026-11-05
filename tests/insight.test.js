@@ -10,7 +10,7 @@ import {
 } from "../netlify/functions/lib/insight.js";
 import { LOG_CHAR_CAP, LOG_DAYS, analyzeContent, formatLog } from "../netlify/functions/lib/prompts.js";
 import { buildStats, mentionsMedicine, ruleSuggestion } from "../public/js/patterns.js";
-import { foodNames } from "../public/js/food-items.js";
+import { TAG_LABELS, foodNames } from "../public/js/food-items.js";
 import { setBackend } from "../public/js/data.js";
 import { freqChart, renderInsight, requestInsight, rollUpDays, showSavedInsight, startFrom, stopTrial } from "../public/js/insights.js";
 
@@ -110,11 +110,8 @@ test("naming a macro without cutting it, or cutting one food, is fine", () => {
   }
 });
 
-test("doctor questions and the medication note may mention medicines", () => {
-  const result = insight({}, {
-    doctor_questions: ["Should I stop taking topiramate, or change the dose?"],
-    medication_note: "You logged advil on 9 of the last 30 days.",
-  });
+test("doctor questions may mention medicines", () => {
+  const result = insight({}, { doctor_questions: ["Is topiramate still the right choice for me?", "Could a keto diet help?"] });
   assert.deepEqual(validateInsight(result, { medNames: ["Topiramate"] }), result);
 });
 
@@ -220,30 +217,146 @@ test("cycle_note and keep_logging get the full scan", () => {
   }
 });
 
-test("medication_note refuses instructions but may still name medicines", () => {
-  const medNames = ["Topiramate"];
-  for (const medication_note of [
-    "Stop taking Advil and raise your Topiramate dose.",
-    "Start taking Topiramate daily.",
-    "Lower the dose.",
-    "Raising your dosage may help.",
-  ]) {
-    assert.equal(validateInsight(insight({}, { medication_note }), { medNames }), null, medication_note);
-  }
-  const fine = insight({}, { medication_note: "You logged Topiramate and Advil on 9 of the last 30 days. Your dose is worth raising with your doctor." });
-  assert.ok(validateInsight(fine, { medNames }));
+const MEDICATION_ADVICE = [
+  "Take more ibuprofen when a headache starts.",
+  "Cut back on your ibuprofen.",
+  "Try taking magnesium every day.",
+  "Skip your preventive for a week.",
+  "Cut your dosage in half.",
+  "Switch to naproxen.",
+];
+
+for (const medication_note of [...MEDICATION_ADVICE, "You logged Advil on 9 of the last 30 days."]) {
+  test(`Claude's medication_note never comes through: ${medication_note}`, () => {
+    const out = validateInsight(insight({}, { medication_note }), {});
+    assert.equal(out.medication_note, null);
+  });
+}
+
+test("a medication_note of the wrong shape is ignored like any other", () => {
+  assert.equal(validateInsight(insight({}, { medication_note: 5 }), {}).medication_note, null);
 });
 
-test("doctor_questions stay unscanned", () => {
-  const result = insight({}, { doctor_questions: ["Should I stop taking Advil, raise my Topiramate dose or try keto?"] });
-  assert.deepEqual(validateInsight(result, { medNames: ["Topiramate"] }), result);
+for (const text of [...MEDICATION_ADVICE, "Stop taking Excedrin and see how you feel.", "Double your sumatriptan next attack."]) {
+  const asked = `${text.slice(0, -1)}?`;
+  test(`a doctor question is dropped, not the result: ${text}`, () => {
+    const keep = "Could this be linked to my cycle?";
+    const out = validateInsight(insight({}, { doctor_questions: [text, asked, keep] }), {});
+    assert.deepEqual(out.doctor_questions, [keep]);
+  });
+}
+
+test("a doctor question has to be a question", () => {
+  const out = validateInsight(insight({}, { doctor_questions: ["Ask about your sleep", "Is my sleep enough? "] }), {});
+  assert.deepEqual(out.doctor_questions, ["Is my sleep enough? "]);
+});
+
+for (const title of [
+  "Try Benadryl before bed",
+  "Try CBD gummies at night",
+  "Try melatonin gummies",
+  "Try some sleep gummies",
+  "Try these herbal drops",
+  "Try fish oil capsules",
+  "Trying magnesium pills may help",
+  "Try taking fish oil",
+]) {
+  test(`try plus a medicine form is refused: ${title}`, () => {
+    assert.equal(validateInsight(insight({ title }), {}), null);
+    assert.equal(validateInsight(insight({ action: title }), {}), null);
+  });
+}
+
+// ---------- Whole food groups ----------
+
+for (const text of [
+  "Cut all grains",
+  "Skip all bread, pasta and rice",
+  "Avoid all meat and fish",
+  "Stop eating fruit",
+  "Skip bread and pasta for 3 weeks",
+  "Go without vegetables",
+  "No meat for 2 weeks",
+  "Try a grain-free diet",
+  "Try a vegan diet",
+  "Avoid processed meat and fish",
+]) {
+  test(`a whole food group cut is refused: ${text}`, () => {
+    assert.equal(validateInsight(insight({ title: text, factor_key: null }), {}), null);
+    assert.equal(validateInsight(insight({}, { also_watching: [{ item: "x", evidence: text }] }), {}), null);
+  });
+}
+
+for (const title of [
+  "Skip aged cheese for 2 weeks",
+  "Try skipping dairy for 3 weeks",
+  "Skip processed meat for 3 weeks",
+  "Skip bread for 2 weeks",
+  "Skip fruit juice for 2 weeks",
+  "Swap your afternoon soda for fruit",
+  "Eat more vegetables at dinner",
+  "Skip cheese and add fruit",
+]) {
+  test(`a narrow change still passes: ${title}`, () => {
+    assert.ok(validateInsight(insight({ title }), {}));
+  });
+}
+
+test("a broad factor_key falls back on the key alone, even if it was never sent", () => {
+  const result = (factor_key) => validateInsight(insight({ title: "Try this for 2 weeks", factor_key }), {});
+  for (const key of ["type:grains", "type:meat_fish", "Type:Grains", "type:made_up", "food:fruit"]) {
+    assert.equal(fitToStats(result(key), []), null, key);
+  }
+  for (const key of ["type:dairy", "type:sweets_snacks", "food:cheddar", null]) {
+    assert.ok(fitToStats(result(key), []), String(key));
+  }
+});
+
+// ---------- Every rule wording passes the same check ----------
+
+function ruleStats(factors) {
+  return {
+    loggedDays: 60, attacks: 10, headacheDays: 10, cycle: null, acuteMedDays30: 12,
+    gaps: { missingSleepDays: 0, missingFoodDays: 0, unsplitFoodEntries: 0 },
+    factors: factors.map(({ key, label, caffeine }) => ({
+      key, label, caffeine, beforeHeadache: 7, headacheTotal: 10, controlHits: 1, controlTotal: 20, confidence: "moderate",
+    })),
+  };
+}
+
+const FACTOR_WORDINGS = [
+  ...Object.entries(TAG_LABELS).map(([tag, label]) => ({ key: `tag:${tag}`, label, caffeine: tag === "caffeine" })),
+  { key: "type:dairy", label: "Dairy" },
+  { key: "type:sweets_snacks", label: "Sweets and snacks" },
+  { key: "sleep:under_6", label: "Under 6 hours of sleep" },
+  { key: "food:coffee", label: "Coffee", caffeine: true },
+  { key: "food:cheddar", label: "Cheddar" },
+  { key: "food:bread", label: "Bread" },
+  { key: "food:rice", label: "Rice" },
+  { key: "food:pasta", label: "Pasta" },
+  { key: "food:fruit juice", label: "Fruit juice" },
+  { key: "food:salami", label: "Salami" },
+];
+
+for (const factor of FACTOR_WORDINGS) {
+  test(`the rule wording for ${factor.key} passes`, () => {
+    const result = ruleSuggestion(ruleStats([factor]), []);
+    assert.equal(result.try_next.factor_key, factor.key);
+    assert.deepEqual(validateInsight(result, {}), { ...result, medication_note: null });
+  });
+}
+
+test("the rule's doctor questions pass, broad group question included", () => {
+  const result = ruleSuggestion(ruleStats([{ key: "type:grains", label: "Grains" }]), []);
+  assert.ok(result.doctor_questions.length >= 3);
+  assert.deepEqual(validateInsight(result, {}).doctor_questions, result.doctor_questions);
 });
 
 // ---------- INSIGHT_SCHEMA ----------
 
 test("INSIGHT_SCHEMA is strict and follows the spec, with factor_key added", () => {
   const { properties: top } = INSIGHT_SCHEMA;
-  assert.deepEqual(Object.keys(top).sort(), ["also_watching", "cycle_note", "doctor_questions", "keep_logging", "medication_note", "try_next"]);
+  assert.deepEqual(Object.keys(top).sort(), ["also_watching", "cycle_note", "doctor_questions", "keep_logging", "try_next"]);
   assert.deepEqual([...INSIGHT_SCHEMA.required].sort(), Object.keys(top).sort());
   assert.equal(INSIGHT_SCHEMA.additionalProperties, false);
   const next = top.try_next;
@@ -305,7 +418,7 @@ test("rule notes pass the full scan: cycle, medication and every keep_logging wo
     const result = ruleSuggestion(stats, []);
     assert.ok(result.cycle_note);
     assert.ok(result.medication_note);
-    assert.deepEqual(validateInsight(result, { medNames: ["Topiramate"] }), result, result.keep_logging);
+    assert.deepEqual(validateInsight(result, { medNames: ["Topiramate"] }), { ...result, medication_note: null }, result.keep_logging);
   }
 });
 

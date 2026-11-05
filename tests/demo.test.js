@@ -56,8 +56,8 @@ test("buildStats runs on the sample data and finds a clear factor", () => {
 });
 
 test("the pre-written Insight matches the schema, the safety check and the sample counts", () => {
-  assert.deepEqual(Object.keys(DEMO_INSIGHT).sort(), Object.keys(INSIGHT_SCHEMA.properties).sort());
-  assert.deepEqual(validateInsight(DEMO_INSIGHT, { medNames: ["Ibuprofen", "Magnesium"] }), DEMO_INSIGHT);
+  assert.deepEqual(Object.keys(DEMO_INSIGHT).sort(), [...Object.keys(INSIGHT_SCHEMA.properties), "medication_note"].sort());
+  assert.deepEqual(validateInsight(DEMO_INSIGHT, { medNames: ["Ibuprofen", "Magnesium"] }), { ...DEMO_INSIGHT, medication_note: null });
   const { days, meds } = buildDemoData(TODAY);
   const stats = buildStats(days, { today: TODAY, medNames: meds.map((m) => m.name) });
   const sleep = stats.factors.find((f) => f.key === DEMO_INSIGHT.try_next.factor_key);

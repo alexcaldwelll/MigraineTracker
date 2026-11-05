@@ -7,7 +7,7 @@ import { INSIGHT_SCHEMA, fitToStats, promptFactors, validateInsight } from "./li
 import { ANALYZE_SYSTEM, SCREENSHOTS, SPLIT_FOOD_SYSTEM, analyzeContent, formatLog } from "./lib/prompts.js";
 import { consumeQuota } from "./lib/quota.js";
 import { ValidationError, validateRequest } from "./lib/validate.js";
-import { buildStats, ruleSuggestion } from "../../public/js/patterns.js";
+import { buildStats, medicationNote, ruleSuggestion } from "../../public/js/patterns.js";
 
 const json = (status, body, headers) => Response.json(body, { status, headers });
 
@@ -105,7 +105,7 @@ export function createActions({ callClaude, loadEntries, loadMeds, loadTrials = 
         schema: INSIGHT_SCHEMA,
       });
       const result = fitToStats(validateInsight(answer, { medNames }), factors);
-      if (result) return { result, source: "ai" };
+      if (result) return { result: { ...result, medication_note: medicationNote(stats) }, source: "ai" };
       console.error("analyze used rules", { reason: "failed_validation" });
     } catch (err) {
       // Labels only, as in the handler.

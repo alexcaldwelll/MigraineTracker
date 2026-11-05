@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { buildStats, confidenceFor, ruleSuggestion } from "../public/js/patterns.js";
+import { MIGRAINE_MEDS, buildStats, confidenceFor, isBroadType, ruleSuggestion } from "../public/js/patterns.js";
 import { TAG_LABELS } from "../public/js/food-items.js";
 import { FOOD_TYPES, TRIGGER_TAGS } from "../netlify/functions/lib/food.js";
 import { shiftDate } from "../public/js/dates.js";
@@ -821,4 +821,38 @@ test("the same log gives the same results in UTC and in New York", () => {
   assert.deepEqual(dates, ["2026-03-10", "2026-03-24", "2026-03-28", "2026-03-29"]);
   assert.deepEqual(stats.factors.filter((f) => f.key.startsWith("food:")).map((f) => f.key), ["food:late snack"]);
   assert.equal(stats.cycle.periodStarts, 1);
+});
+
+// A supplement logged only as food: never saved as a med, but on the fixed list.
+function supplementLog(names) {
+  const days = [];
+  for (let n = 0; n < 70; n++) {
+    const before = n % 10 === 7;
+    const entries = [{ id: `e${nextId++}`, type: "sleep", time: "07:00", hours: 8 }, food("09:00", ...(before ? names : ["toast"]).map((name) => item(name)))];
+    if (n % 10 === 8) entries.push(headache("10:00"));
+    days.push({ date: date(n), entries });
+  }
+  return buildStats(days, { now: nowAfter(71) });
+}
+
+test("a supplement on the fixed list is counted but never suggested or watched", () => {
+  const stats = supplementLog(["melatonin gummies", "magnesium", "cheddar"]);
+  assert.ok(stats.factors.some((f) => f.key === "food:melatonin gummies" && f.beforeHeadache > 2));
+  assert.ok(stats.factors.some((f) => f.key === "food:magnesium"));
+  const result = ruleSuggestion(stats, []);
+  assert.doesNotMatch(result.try_next.title, /melatonin|magnesium/i);
+  assert.doesNotMatch(JSON.stringify(result.also_watching), /melatonin|magnesium/i);
+  assert.equal(result.try_next.factor_key, "food:cheddar");
+});
+
+test("the fixed list holds the migraine medicines and the supplements seen in logs", () => {
+  for (const name of ["melatonin", "magnesium", "riboflavin", "topiramate", "cbd", "benadryl"]) assert.ok(MIGRAINE_MEDS.includes(name), name);
+});
+
+test("a food named after a whole group is as broad as the group", () => {
+  for (const key of ["food:fruit", "food:meat", "food:grains", "type:grains"]) assert.equal(isBroadType({ key }), true, key);
+  for (const key of ["food:cheddar", "food:fruit juice", "type:dairy", "sleep:under_6", "tag:processed_meat"]) assert.equal(isBroadType({ key }), false, key);
+  const stats = supplementLog(["fruit"]);
+  assert.ok(stats.factors.some((f) => f.key === "food:fruit"));
+  assert.notEqual(ruleSuggestion(stats, []).try_next.factor_key, "food:fruit");
 });
