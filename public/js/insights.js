@@ -61,8 +61,8 @@ export async function renderAnalysis(){
     sleepHtml += barRow('No headache', avgN, max, withoutH.length, v=>v.toFixed(1)+'h');
   }
   $('#sleepChart').innerHTML = sleepHtml;
-  $('#foodChart').innerHTML = freqChart(withH, d=>d.foods, '#b0563f');
-  $('#medChart').innerHTML = freqChart(withH, d=>d.meds, '#8a9b6e');
+  $('#foodChart').innerHTML = freqChart(withH, d=>d.foods, 'var(--tag-headache)');
+  $('#medChart').innerHTML = freqChart(withH, d=>d.meds, 'var(--tag-food)');
 
   // Cycle chart
   const periodStarts = findCycleDays(days);

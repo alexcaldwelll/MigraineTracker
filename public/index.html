@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="color-scheme" content="light dark">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Migraine & Trigger Log</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -39,13 +40,13 @@
 
 <div id="authScreen">
   <svg class="hero-illustration" viewBox="0 0 320 130" xmlns="http://www.w3.org/2000/svg">
-  <path d="M0,95 Q80,40 160,85 T320,75" fill="none" stroke="#5b7a6b" stroke-width="2" opacity="0.55"/>
-  <path d="M0,108 Q80,68 160,102 T320,98" fill="none" stroke="#a15c7a" stroke-width="2" opacity="0.4"/>
-  <path d="M0,118 Q80,92 160,112 T320,110" fill="none" stroke="#4a8ba8" stroke-width="2" opacity="0.35"/>
-  <path d="M244,20a15,15 0 1 0 15,15 a11.5,11.5 0 0 1 -15,-15z" fill="#c98a4a" opacity="0.55"/>
-  <circle cx="55" cy="28" r="2.4" fill="#5b7a6b" opacity="0.6"/>
-  <circle cx="82" cy="18" r="1.9" fill="#a15c7a" opacity="0.5"/>
-  <circle cx="108" cy="32" r="1.7" fill="#4a8ba8" opacity="0.5"/>
+  <path d="M0,95 Q80,40 160,85 T320,75" fill="none" style="stroke:var(--art-green)" stroke-width="2" opacity="0.55"/>
+  <path d="M0,108 Q80,68 160,102 T320,98" fill="none" style="stroke:var(--art-plum)" stroke-width="2" opacity="0.4"/>
+  <path d="M0,118 Q80,92 160,112 T320,110" fill="none" style="stroke:var(--art-blue)" stroke-width="2" opacity="0.35"/>
+  <path d="M244,20a15,15 0 1 0 15,15 a11.5,11.5 0 0 1 -15,-15z" style="fill:var(--art-amber)" opacity="0.55"/>
+  <circle cx="55" cy="28" r="2.4" style="fill:var(--art-green)" opacity="0.6"/>
+  <circle cx="82" cy="18" r="1.9" style="fill:var(--art-plum)" opacity="0.5"/>
+  <circle cx="108" cy="32" r="1.7" style="fill:var(--art-blue)" opacity="0.5"/>
 </svg>
   <h1>Migraine & Trigger Log</h1>
   <p class="sub" id="authModeSub">Sign in to your account. Accounts are invite-only. Forgot your password? Ask the person who invited you.</p>
@@ -318,7 +319,7 @@
 </div>
 
 <!-- MEDS SETTINGS MODAL -->
-<div id="medsModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:100;">
+<div id="medsModal" style="display:none; position:fixed; inset:0; background:var(--backdrop); z-index:100;">
   <div style="background:var(--paper); max-width:480px; margin:60px auto; border-radius:12px; padding:20px; max-height:80vh; overflow-y:auto;">
     <h2 style="margin-top:0;">Your medications</h2>
     <div id="medsCatalogList"></div>

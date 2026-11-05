@@ -81,7 +81,7 @@ export function wireEntryRows(containerSel, date){
   });
 }
 function tagColor(type){
-  return {food:'#8a9b6e', headache:'#b0563f', prodrome:'#c98a4a', meds:'#5b7a6b', sleep:'#3f5c4f', workout:'#4a6f8a', period:'#a15c7a', hydration:'#4a8ba8', note:'#7a7568'}[type] || '#7a7568';
+  return `var(--tag-${['food','headache','prodrome','meds','sleep','workout','period','hydration','note'].includes(type)?type:'note'})`;
 }
 function tagLabel(type){
   return {food:'Food', headache:'Headache', prodrome:'Early signs', meds:'Meds', sleep:'Sleep', workout:'Exercise', period:'Period', hydration:'Water', note:'Note'}[type] || type;

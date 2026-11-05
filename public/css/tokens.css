@@ -1,4 +1,5 @@
 :root{
+  color-scheme:light;
   /* text */
   --ink:#232d2f; --ink-soft:#48545a; --muted:#6c685c;
   /* surfaces (warm paper + warm white cards) */
@@ -6,12 +7,42 @@
   --line:#e4dfd2; --line-strong:#d6d0c1;
   /* accent + semantic */
   --accent:#527a67; --accent-dark:#3d5b4d; --accent-tint:#eaf1ec;
-  --warn:#b0563f; --warn-tint:#f9ece7;
+  --warn:#b0563f; --warn-tint:#f9ece7; --warn-ink:#9a4631; --warn-hover:#974733; --warn-line:#e6b9ab;
   --period:#a15c7a; --prodrome:#c98a4a; --hydration:#4a8ba8;
+  /* text on filled accent / warn / tag backgrounds */
+  --on-accent:#ffffff; --on-warn:#ffffff; --on-tag:#ffffff;
+  /* entry tag + chart colors (white text must reach 4.5:1) */
+  --tag-food:#68784c; --tag-headache:#b0563f; --tag-prodrome:#935e1f; --tag-meds:#5b7a6b; --tag-sleep:#3f5c4f;
+  --tag-workout:#4a6f8a; --tag-period:#a15c7a; --tag-hydration:#2f7390; --tag-note:#6c685c;
+  /* illustration strokes */
+  --art-green:#5b7a6b; --art-plum:#a15c7a; --art-blue:#4a8ba8; --art-amber:#c98a4a;
+  --track:#ece7db; --backdrop:rgba(0,0,0,0.4);
   /* shape scale: containers 14 · nested 12 · controls 10 · pills full */
   --r-card:14px; --r-nest:12px; --r-ctrl:10px; --r-pill:999px;
   /* elevation, tinted to ink hue (never pure black) */
   --shadow-sm:0 1px 2px rgba(35,45,47,0.05);
   --shadow-md:0 8px 24px -14px rgba(35,45,47,0.28);
+  --shadow-lg:0 24px 60px -20px rgba(35,45,47,0.45);
   --ease:cubic-bezier(0.16,1,0.3,1);
+}
+
+/* Low light: automatic dark theme for light sensitivity. Same token names, dim values. */
+@media screen and (prefers-color-scheme: dark){
+  :root{
+    color-scheme:dark;
+    --ink:#d9d4c8; --ink-soft:#bdb8ac; --muted:#9b978c;
+    --paper:#1b1f24; --card:#252a31; --field:#20252b;
+    --line:#333a42; --line-strong:#454d57;
+    --accent:#a9714b; --accent-dark:#d29c76; --accent-tint:#35291f;
+    --warn:#e0836b; --warn-tint:#3b2622; --warn-ink:#eb9a84; --warn-hover:#ec9d88; --warn-line:#6b3a30;
+    --period:#cf8fac; --prodrome:#d9a066; --hydration:#78b5d1;
+    --on-accent:#0f0c09; --on-warn:#0f0c09; --on-tag:#0f0c09;
+    --tag-food:#a3b383; --tag-headache:#e0836b; --tag-prodrome:#d9a066; --tag-meds:#8fb3a2; --tag-sleep:#86ab9a;
+    --tag-workout:#8fb0cc; --tag-period:#cf8fac; --tag-hydration:#78b5d1; --tag-note:#a29d90;
+    --art-green:#8fb3a2; --art-plum:#cf8fac; --art-blue:#78b5d1; --art-amber:#d9a066;
+    --track:#333a42; --backdrop:rgba(0,0,0,0.65);
+    --shadow-sm:0 1px 2px rgba(0,0,0,0.35);
+    --shadow-md:0 8px 24px -14px rgba(0,0,0,0.6);
+    --shadow-lg:0 24px 60px -20px rgba(0,0,0,0.7);
+  }
 }
