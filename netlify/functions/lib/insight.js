@@ -30,27 +30,64 @@ export const INSIGHT_SCHEMA = objectOf({
 });
 
 const MEDICATION_ADVICE = ["stop taking", "dose", "dosage", "start taking", "increase your", "reduce your med"];
-const MEDICATION_WORDS = /\b(?:medications?|medicines?|meds?|pills?)\b/;
+const MEDICATION_WORDS = /\b(?:medications?|medicines?|meds?|pills?|preventives?|rescue|supplements?|prescriptions?|tablets?|capsules?|painkillers?|drugs?|nsaids?)\b|\b\d+(?:\.\d+)?\s*(?:mg|mcg|milligrams?)\b/;
+// What medication_note may not say. It can name medicines, but only reports them.
+const MEDICATION_ORDERS = /\b(?:stop|start) taking\b|\b(?:rais(?:e|ing)|increas(?:e|ing)|lower(?:ing)?|reduc(?:e|ing)|decreas(?:e|ing)|doubl(?:e|ing)|halv(?:e|ing)|chang(?:e|ing)|adjust(?:ing)?)\b[^.!?]*\b(?:dose|dosage)\b/;
+
+// Migraine medicines and supplements Claude might suggest by name. Only for this
+// check: on the patterns.js list they would stop being food factors.
+const MIGRAINE_MEDS = [
+  "aimovig", "ajovy", "amerge", "amitriptyline", "axert", "botox", "butalbital", "butterbur", "candesartan",
+  "codeine", "compazine", "coenzyme", "coq10", "depakote", "emgality", "feverfew", "fioricet", "frova",
+  "gabapentin", "imitrex", "magnesium", "maxalt", "melatonin", "metoclopramide", "nortriptyline", "nurtec",
+  "ondansetron", "oxycodone", "prochlorperazine", "propranolol", "qulipta", "reglan", "relpax", "reyvow",
+  "riboflavin", "topamax", "topiramate", "tramadol", "treximet", "ubrelvy", "valproate", "verapamil",
+  "vitamin", "vyepti", "zofran", "zomig",
+];
+
+// Words in a saved med name that say nothing about which medicine it is.
+const FORM_WORDS = new Set([
+  "acid", "aid", "chewable", "daily", "day", "er", "extra", "headache", "hcl", "injection", "max", "maximum",
+  "migraine", "nasal", "night", "odt", "oil", "oral", "pain", "rapid", "regular", "release", "relief", "sleep",
+  "sodium", "spray", "strength", "sublingual", "tablet", "tablets", "xr",
+]);
+
+// "Nurtec ODT" must also catch plain "Nurtec", so each distinctive word counts as
+// a name. Only here: food factors keep the whole-name match in patterns.js.
+const distinctiveWords = (name) => String(name ?? "").toLowerCase().split(/[^a-z]+/)
+  .filter((word) => word.length > 2 && !FORM_WORDS.has(word));
 
 const MACRO = "(?:carbs?|carbohydrates?|proteins?|fats?|macronutrients?|macros?)";
-const CUT = "(?:cut(?:ting)?|avoid(?:ing)?|skip(?:ping)?|remov(?:e|ing)|eliminat(?:e|ing)|drop(?:ping)?|stop(?:ping)?|quit(?:ting)?|reduc(?:e|ing)|lower(?:ing)?|limit(?:ing)?|restrict(?:ing)?|ditch(?:ing)?|giv(?:e|ing) up)";
+const CUT = "(?:cut(?:ting)?|avoid(?:ing)?|skip(?:ping)?|remov(?:e|ing)|eliminat(?:e|ing)|drop(?:ping)?|stop(?:ping)?|quit(?:ting)?|reduc(?:e|ing)|lower(?:ing)?|limit(?:ing)?|restrict(?:ing)?|ditch(?:ing)?|giv(?:e|ing) up|banish(?:ing)?|fast(?:ing)?|replac(?:e|ing)|swap(?:ping)?|stay away|steer clear|don't|do not|never)";
 const LITTLE = "(?:less|fewer|low|lower|no|without|zero)";
 const GAP = "[\\s,'-]+";
 const WORD = "[\\w']+";
-// Words in one sentence, so "Skip cheese. Protein ..." is not a match. These lean
-// strict: "skip protein bars" fails too, and the rule result takes its place.
+// Words in one sentence, so "Skip cheese. Protein ..." is not a match. An adding
+// form does not excuse these: "anything with fat" still follows "stop eating".
 const CUTS_MACRO = [
-  new RegExp(`\\b${CUT}(?:${GAP}${WORD}){0,3}?${GAP}${MACRO}\\b`),
+  new RegExp(`\\b${CUT}(?:${GAP}${WORD}){0,6}?${GAP}${MACRO}\\b`),
   new RegExp(`\\b${LITTLE}(?:${GAP}${WORD})?${GAP}${MACRO}\\b`),
   new RegExp(`\\b${MACRO}${GAP}free\\b`),
 ];
+const ADDS_MACRO = new RegExp(`\\b(?:add(?:ing)?|more|with|extra)(?:${GAP}${WORD})?${GAP}${MACRO}\\b`, "g");
+const MACRO_WORD = new RegExp(`\\b${MACRO}\\b`);
+const MACRO_DIETS = /\b(?:keto|ketogenic|carnivore|atkins)\b/;
 
-const isUnsafe = (value, medNames) => {
-  const lower = value.toLowerCase().replace(/\s+/g, " ");
+// A macro word is refused unless it is being added, because there are too many
+// ways to say "cut it". This leans strict: "skip protein bars" and "your protein
+// at lunch" fail too, and the rule result takes their place.
+const targetsMacro = (lower) => MACRO_DIETS.test(lower)
+  || CUTS_MACRO.some((pattern) => pattern.test(lower))
+  || MACRO_WORD.test(lower.replace(ADDS_MACRO, " "));
+
+const normalize = (value) => value.toLowerCase().replace(/\s+/g, " ");
+
+const isUnsafe = (value, medicines) => {
+  const lower = normalize(value);
   return MEDICATION_ADVICE.some((phrase) => lower.includes(phrase))
     || MEDICATION_WORDS.test(lower)
-    || CUTS_MACRO.some((pattern) => pattern.test(lower))
-    || mentionsMedicine(value, medNames);
+    || targetsMacro(lower)
+    || mentionsMedicine(value, medicines);
 };
 
 const isText = (value) => typeof value === "string" && value.trim() !== "";
@@ -64,8 +101,9 @@ function validTryNext(next) {
 }
 
 // Returns the result with only its known fields, or null if it is malformed or
-// breaks a safety rule. doctor_questions and medication_note are not scanned:
-// raising medicines and bigger food changes with a doctor is the allowed path.
+// breaks a safety rule. doctor_questions are not scanned: raising medicines and
+// bigger food changes with a doctor is the allowed path. medication_note may name
+// medicines, but gives no orders.
 export function validateInsight(result, { medNames = [] } = {}) {
   if (typeof result !== "object" || result === null || !validTryNext(result.try_next)) return null;
   const { try_next: next, also_watching: watching, keep_logging, doctor_questions, cycle_note = null, medication_note = null } = result;
@@ -74,8 +112,11 @@ export function validateInsight(result, { medNames = [] } = {}) {
   if (!Array.isArray(doctor_questions) || !doctor_questions.every(isText)) return null;
   if (!isNote(cycle_note) || !isNote(medication_note)) return null;
 
-  const scanned = [next.title, next.action, next.why, ...watching.flatMap((w) => [w.item, w.evidence])];
-  if (scanned.some((value) => isUnsafe(value, medNames))) return null;
+  const medicines = [...MIGRAINE_MEDS, ...medNames, ...medNames.flatMap(distinctiveWords)];
+  const scanned = [next.title, next.action, next.why, ...watching.flatMap((w) => [w.item, w.evidence]), keep_logging];
+  if (cycle_note !== null) scanned.push(cycle_note);
+  if (scanned.some((value) => isUnsafe(value, medicines))) return null;
+  if (medication_note !== null && MEDICATION_ORDERS.test(normalize(medication_note))) return null;
 
   return {
     try_next: {

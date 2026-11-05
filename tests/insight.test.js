@@ -126,6 +126,119 @@ test("the other fields keep their shape", () => {
   assert.equal(validateInsight({ ...insight(), cycle_note: 5 }, {}), null);
 });
 
+test("a saved name with more than one word is caught by its distinctive word", () => {
+  for (const [title, name] of [
+    ["Skip Nurtec for 2 weeks", "Nurtec ODT"],
+    ["Stop zofran", "Zofran ODT"],
+    ["Pause your magnesium", "Magnesium glycinate"],
+    ["Pause your glycinate", "Magnesium glycinate"],
+    ["Skip Excedrin", "Excedrin Migraine"],
+    ["Try Xylofen again", "Xylofen Nasal Spray"],
+  ]) {
+    assert.equal(validateInsight(insight({ title }), { medNames: [name] }), null, title);
+    assert.equal(validateInsight(insight({}, { keep_logging: title }), { medNames: [name] }), null, title);
+  }
+});
+
+test("the form words of a saved name do not count as the medicine", () => {
+  const medNames = ["Excedrin Migraine", "Sleep Aid", "Nurtec ODT", "Xylofen Nasal Spray", "Tablet Thing"];
+  for (const title of ["Log every migraine for 2 weeks", "Aim for 7+ hours of sleep", "Note any nasal symptoms"]) {
+    assert.ok(validateInsight(insight({ title }), { medNames }), title);
+  }
+});
+
+test("saved names do not change which foods count as factors", () => {
+  assert.equal(mentionsMedicine("skip nurtec", ["Nurtec ODT"]), false);
+  assert.equal(mentionsMedicine("skip nurtec odt", ["Nurtec ODT"]), true);
+});
+
+for (const title of [
+  "Stop your preventive",
+  "Double up on your preventive",
+  "Skip your rescue inhaler",
+  "Use your painkillers earlier",
+  "Stop your prescription",
+  "Take fewer tablets",
+  "Try feverfew capsules",
+  "Try a magnesium supplement",
+  "Take riboflavin every morning",
+  "Try 400 mg of magnesium at night",
+  "Try 400mg at night",
+  "Stop Imitrex",
+  "Avoid over-the-counter drugs",
+]) {
+  test(`medication wording is refused: ${title}`, () => {
+    assert.equal(validateInsight(insight({ title }), { medNames: [] }), null);
+    assert.equal(validateInsight(insight({}, { also_watching: [{ item: "x", evidence: title }] }), { medNames: [] }), null);
+  });
+}
+
+test("a plain number is not a medicine amount", () => {
+  assert.ok(validateInsight(insight({ title: "Drink 400 ml of water at night" }), {}));
+  assert.ok(validateInsight(insight({ title: "Sleep 8 hours for 14 nights" }), {}));
+});
+
+for (const title of [
+  "Don't eat carbs",
+  "Stay away from carbs",
+  "Banish carbs",
+  "Fast from carbs",
+  "Replace carbs with vegetables",
+  "Cut out all of your carbs",
+  "Stop eating anything with fat",
+  "Go without carbohydrates",
+  "Zero-carb diet",
+  "Eat meals with fewer carbs",
+  "Add protein and drop the carbs",
+  "Try a keto diet",
+  "Try a ketogenic diet",
+  "Try the carnivore diet",
+  "Try the Atkins diet",
+]) {
+  test(`whole macronutrient wording is refused: ${title}`, () => {
+    assert.equal(validateInsight(insight({ title }), {}), null);
+  });
+}
+
+test("macro words pass only in an adding form", () => {
+  for (const title of ["Add protein at breakfast", "Eat more protein at lunch", "Pair fruit with protein", "Add some fat to lunch"]) {
+    assert.ok(validateInsight(insight({ title }), {}), title);
+  }
+  for (const title of ["Have your protein at lunch", "Watch your fat"]) {
+    assert.equal(validateInsight(insight({ title }), {}), null, title);
+  }
+});
+
+test("cycle_note and keep_logging get the full scan", () => {
+  const medNames = ["Topiramate"];
+  assert.equal(validateInsight(insight({}, { cycle_note: "Start taking naproxen two days before your period." }), { medNames }), null);
+  assert.equal(validateInsight(insight({}, { keep_logging: "Stop taking your preventive and log how it goes." }), { medNames }), null);
+  for (const field of ["cycle_note", "keep_logging"]) {
+    for (const value of ["Topiramate is worth logging.", "Log your meds.", "Cut carbs before your period."]) {
+      assert.equal(validateInsight(insight({}, { [field]: value }), { medNames }), null, `${field}: ${value}`);
+    }
+  }
+});
+
+test("medication_note refuses instructions but may still name medicines", () => {
+  const medNames = ["Topiramate"];
+  for (const medication_note of [
+    "Stop taking Advil and raise your Topiramate dose.",
+    "Start taking Topiramate daily.",
+    "Lower the dose.",
+    "Raising your dosage may help.",
+  ]) {
+    assert.equal(validateInsight(insight({}, { medication_note }), { medNames }), null, medication_note);
+  }
+  const fine = insight({}, { medication_note: "You logged Topiramate and Advil on 9 of the last 30 days. Your dose is worth raising with your doctor." });
+  assert.ok(validateInsight(fine, { medNames }));
+});
+
+test("doctor_questions stay unscanned", () => {
+  const result = insight({}, { doctor_questions: ["Should I stop taking Advil, raise my Topiramate dose or try keto?"] });
+  assert.deepEqual(validateInsight(result, { medNames: ["Topiramate"] }), result);
+});
+
 // ---------- INSIGHT_SCHEMA ----------
 
 test("INSIGHT_SCHEMA is strict and follows the spec, with factor_key added", () => {
@@ -175,6 +288,24 @@ test("every kind of rule suggestion passes validateInsight with the app's own wo
   for (const [name, days] of Object.entries(logs)) {
     const result = ruleSuggestion(buildStats(days, { today: "2026-06-01", medNames }), []);
     assert.deepEqual(validateInsight(result, { medNames }), result, name);
+  }
+});
+
+test("rule notes pass the full scan: cycle, medication and every keep_logging wording", () => {
+  const notes = [
+    { missingSleepDays: 0, missingFoodDays: 0, unsplitFoodEntries: 0 },
+    { missingSleepDays: 9, missingFoodDays: 1, unsplitFoodEntries: 0 },
+    { missingSleepDays: 1, missingFoodDays: 9, unsplitFoodEntries: 0 },
+    { missingSleepDays: 1, missingFoodDays: 1, unsplitFoodEntries: 1 },
+    { missingSleepDays: 1, missingFoodDays: 1, unsplitFoodEntries: 9 },
+  ];
+  for (const gaps of notes) {
+    const stats = { loggedDays: 40, attacks: 6, headacheDays: 6, factors: [], acuteMedDays30: 12, gaps,
+      cycle: { periodStarts: 2, byCycleDay: { "+1": 5, "+9": 1 }, counted: 6, nearPeriod: 5 } };
+    const result = ruleSuggestion(stats, []);
+    assert.ok(result.cycle_note);
+    assert.ok(result.medication_note);
+    assert.deepEqual(validateInsight(result, { medNames: ["Topiramate"] }), result, result.keep_logging);
   }
 });
 

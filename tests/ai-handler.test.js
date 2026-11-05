@@ -336,7 +336,7 @@ test("analyze loads everything with the user's token and asks Sonnet for the sch
   const [req] = calls.callClaude;
   assert.equal(req.model, MODELS.sonnet);
   assert.equal(req.effort, "medium");
-  assert.equal(req.maxTokens, 4000);
+  assert.equal(req.maxTokens, 8000);
   assert.equal(req.schema, INSIGHT_SCHEMA);
   assert.match(req.content, /STATS:/);
   assert.match(req.content, /Old trial/);

@@ -93,7 +93,9 @@ export function createActions({ callClaude, loadEntries, loadMeds, loadTrials = 
       const answer = await callClaude({
         model: MODELS.sonnet,
         effort: "medium",
-        maxTokens: 4000,
+        // Thinking counts toward this, and hitting it gives no usable answer, so a
+        // tight limit would quietly turn every analysis into the rule result.
+        maxTokens: 8000,
         system: ANALYZE_SYSTEM,
         content: analyzeContent({
           stats: { ...stats, factors },
