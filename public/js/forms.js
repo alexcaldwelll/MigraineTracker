@@ -16,6 +16,7 @@ let earlierMode = false;   // "Log an earlier headache": date and time are edita
 let saving = false;
 let interruptions = [];
 const draftTimes = {};      // a time set in one type's sheet stays with that type
+let draftAside = null;      // a new entry's unsaved fields, while an edit of that type uses the sheet
 let onEntrySaved = ()=>{};  // an entry was added or updated
 let onMedSaved = ()=>{};    // the meds catalog grew
 
@@ -159,6 +160,35 @@ function clearDraft(type){
   }
 }
 
+// A new entry and an edit of the same type share one set of fields, so the draft
+// waits here until the edit is saved or dropped.
+function setDraftAside(type){
+  const scope = '#fields-'+type;
+  draftAside = {
+    type,
+    fields: $$(scope+' input, '+scope+' textarea').map(field=> ({ field, value: field.value, checked: field.checked })),
+    chips: $$(scope+' .chip[data-val], '+scope+' .sev-btn').filter(chip=> chip.classList.contains('on')),
+    interruptions: type==='sleep' ? interruptions : [],
+    time: type===currentType ? $('#entryTime').value : draftTimes[type],
+  };
+}
+function restoreDraft(){
+  if(!draftAside) return;
+  const { type, fields, chips, interruptions: rows, time } = draftAside;
+  draftAside = null;
+  fields.forEach(({ field, value, checked })=>{
+    if(field.type==='checkbox') field.checked = checked; else field.value = value;
+  });
+  chips.forEach(chip=> setOn(chip, true));
+  if(type==='sleep'){ interruptions = rows; renderInterruptions(); }
+  draftTimes[type] = time;
+  if(type===currentType){
+    $('#entryTime').value = time || '';
+    showTimeField(Boolean(time));
+  }
+  revealFilledDetail(type);
+}
+
 // ---------- Saving ----------
 function failureMessage(error){
   return (error && error.message) || 'Something went wrong.';
@@ -233,6 +263,7 @@ async function saveSheet(){
     editingId = null; editingEntry = null; earlierMode = false;
     $('#sheetDateField').hidden = true;
     clearDraft(type);
+    restoreDraft();
   }));
   if(!result.ok){
     // A retry later must keep the time of this attempt, not the time of the retry.
@@ -310,6 +341,7 @@ function abandonEdit(){
   editingId = null; editingEntry = null; earlierMode = false;
   $('#sheetDateField').hidden = true;
   clearDraft(currentType);
+  restoreDraft();
 }
 
 // `earlier` opens the headache form for one that is over: date and time show.
@@ -341,6 +373,7 @@ export function openEditSheet(entry, { title } = {}){
   abandonEdit();
   hideSheetError();
   showSheetDay();
+  setDraftAside(entry.type);
   clearDraft(entry.type);
   editingId = entry.id; editingEntry = entry;
   showType(entry.type);

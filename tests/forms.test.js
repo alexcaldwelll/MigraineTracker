@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { setBackend } from "../public/js/data.js";
-import { submitEntry, commitDraft } from "../public/js/forms.js";
+import { submitEntry, commitDraft, initForms, openEditSheet, openSheet } from "../public/js/forms.js";
+import { FakeElement, fakePage } from "./fake-page.js";
 import { tileStatus } from "../public/js/today.js";
 
 const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
@@ -213,4 +214,73 @@ test("component styles use color tokens, never raw colors", () => {
   for (const value of values) {
     assert.equal(/#[0-9a-f]{3,8}\b|rgba?\(/i.test(value), false, value);
   }
+});
+
+// ---------- Editing does not cost a new entry its draft ----------
+
+function foodSheet(t, update = async () => {}) {
+  const page = fakePage(t);
+  const field = page.$("#foodText");
+  page.list("#fields-food input, #fields-food textarea", [field]);
+  initForms({ onEntrySaved() {}, onMedSaved() {} });
+  setBackend({ update });
+  openSheet("food");
+  return { ...page, field };
+}
+const saved = { id: "e1", type: "food", time: "07:30", text: "eggs", split_status: "done" };
+
+test("opening an edit, then closing it, gives the new draft back", (t) => {
+  const { $, field } = foodSheet(t);
+  field.value = "half a sandwich";
+  openEditSheet(saved);
+  assert.equal(field.value, "eggs");
+  $("#sheet").close();
+  openSheet("food");
+  assert.equal(field.value, "half a sandwich");
+});
+
+test("saving an edit gives the new draft back", async (t) => {
+  const updates = [];
+  const { $, field } = foodSheet(t, async (id, date, entry) => { updates.push(entry.text); });
+  field.value = "half a sandwich";
+  openEditSheet(saved);
+  field.value = "two eggs";
+  $("#sheetForm").fire("submit", { preventDefault() {} });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(updates, ["two eggs"]);
+  assert.equal(field.value, "half a sandwich");
+});
+
+test("a draft's time and chips come back too", (t) => {
+  const { $, field, list } = foodSheet(t);
+  const chip = new FakeElement();
+  chip.classList.add("on");
+  list("#fields-food .chip[data-val], #fields-food .sev-btn", [chip]);
+  field.value = "half a sandwich";
+  $("#entryTime").value = "12:15";
+  openEditSheet(saved);
+  assert.equal(chip.classList.contains("on"), false);
+  assert.equal($("#entryTime").value, "07:30");
+  openSheet("food");
+  assert.equal(chip.classList.contains("on"), true);
+  assert.equal($("#entryTime").value, "12:15");
+  assert.equal(field.value, "half a sandwich");
+});
+
+test("a second edit in a row keeps the same draft, not the first edit", (t) => {
+  const { field } = foodSheet(t);
+  field.value = "half a sandwich";
+  openEditSheet(saved);
+  openEditSheet({ ...saved, id: "e2", text: "toast" });
+  assert.equal(field.value, "toast");
+  openSheet("food");
+  assert.equal(field.value, "half a sandwich");
+});
+
+test("an edit left unsaved never leaks into the new draft", (t) => {
+  const { field } = foodSheet(t);
+  openEditSheet(saved);
+  field.value = "changed my mind";
+  openSheet("food");
+  assert.equal(field.value, "");
 });
