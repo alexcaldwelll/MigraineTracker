@@ -15,6 +15,16 @@ test("netlify.toml sets security headers", () => {
   assert.match(toml, /X-Content-Type-Options/);
 });
 
+test("the Content-Security-Policy allows no inline scripts", () => {
+  const csp = toml.match(/Content-Security-Policy = "([^"]+)"/)[1];
+  const directive = (name) => csp.split(";").map((d) => d.trim()).find((d) => d.startsWith(`${name} `));
+  assert.equal(directive("script-src").includes("'unsafe-inline'"), false);
+  assert.match(directive("script-src"), /'self'/);
+  assert.match(directive("script-src"), /https:\/\/cdn\.jsdelivr\.net/);
+  // Inline style attributes remain in the markup.
+  assert.match(directive("style-src"), /'unsafe-inline'/);
+});
+
 test("public/index.html exists and pins supabase-js", () => {
   const url = new URL("../public/index.html", import.meta.url);
   assert.ok(existsSync(url), "public/index.html is missing");

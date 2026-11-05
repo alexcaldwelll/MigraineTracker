@@ -1,0 +1,17 @@
+:root{
+  /* text */
+  --ink:#232d2f; --ink-soft:#48545a; --muted:#6c685c;
+  /* surfaces (warm paper + warm white cards) */
+  --paper:#f2efe7; --card:#fffdf9; --field:#faf8f2;
+  --line:#e4dfd2; --line-strong:#d6d0c1;
+  /* accent + semantic */
+  --accent:#527a67; --accent-dark:#3d5b4d; --accent-tint:#eaf1ec;
+  --warn:#b0563f; --warn-tint:#f9ece7;
+  --period:#a15c7a; --prodrome:#c98a4a; --hydration:#4a8ba8;
+  /* shape scale: containers 14 · nested 12 · controls 10 · pills full */
+  --r-card:14px; --r-nest:12px; --r-ctrl:10px; --r-pill:999px;
+  /* elevation, tinted to ink hue (never pure black) */
+  --shadow-sm:0 1px 2px rgba(35,45,47,0.05);
+  --shadow-md:0 8px 24px -14px rgba(35,45,47,0.28);
+  --ease:cubic-bezier(0.16,1,0.3,1);
+}

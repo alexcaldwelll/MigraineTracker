@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { createHandler, createActions } from "../netlify/functions/ai.js";
 import { AiUnavailable } from "../netlify/functions/lib/anthropic.js";
 import { getUser } from "../netlify/functions/lib/auth.js";
@@ -423,8 +423,12 @@ test("loadEntries throws rather than returning a partial log", async (t) => {
 
 test("the open proxy is deleted and the browser no longer calls it", () => {
   assert.equal(existsSync(new URL("../netlify/functions/analyze.js", import.meta.url)), false);
-  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
-  assert.equal(html.includes("/.netlify/functions/analyze"), false);
-  assert.equal(/model:\s*'claude-/.test(html), false);
-  assert.equal(/max_tokens/.test(html), false);
+  const jsDir = new URL("../public/js/", import.meta.url);
+  const browserCode = [
+    readFileSync(new URL("../public/index.html", import.meta.url), "utf8"),
+    ...readdirSync(jsDir).map((file) => readFileSync(new URL(file, jsDir), "utf8")),
+  ].join("\n");
+  assert.equal(browserCode.includes("/.netlify/functions/analyze"), false);
+  assert.equal(/model:\s*'claude-/.test(browserCode), false);
+  assert.equal(/max_tokens/.test(browserCode), false);
 });
