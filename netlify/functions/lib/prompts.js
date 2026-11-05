@@ -23,7 +23,7 @@ Rules for your answer:
 - Do not repeat a past trial that did not help.
 - factor_key is the key of the STATS.factors entry the suggestion tests, copied exactly, or null if it tests none, as with a logging suggestion.
 - confidence is "early guess", "moderate" or "strong". Copy it from that factor. With no factor, use "early guess".
-- why gives the counts behind the suggestion. also_watching holds up to 3 other things worth keeping an eye on, each with its counts. keep_logging says what missing data would help most. doctor_questions are questions the person can ask at their next visit: each one ends in a question mark and asks, rather than telling them to take, skip, switch or cut back on anything. cycle_note is null unless there is something to say.
+- why gives the counts behind the suggestion. also_watching holds up to 3 other things worth keeping an eye on, each with its counts. keep_logging says what missing data would help most. doctor_questions are questions the person can ask at their next visit: each one is in the person's own voice, opens like a question, as in "Should I ...?", and ends in a question mark. It never tells them to take, skip, switch or cut back on anything. cycle_note is null unless there is something to say.
 - Write in plain everyday language for someone with no medical training. Keep each field to one or two short sentences.`;
 
 // How much of the log Claude sees. Stats come from every entry, so this only

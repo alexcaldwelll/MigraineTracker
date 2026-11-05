@@ -111,7 +111,7 @@ test("naming a macro without cutting it, or cutting one food, is fine", () => {
 });
 
 test("doctor questions may mention medicines", () => {
-  const result = insight({}, { doctor_questions: ["Is topiramate still the right choice for me?", "Could a keto diet help?"] });
+  const result = insight({}, { doctor_questions: ["Should I stop taking topiramate, or change the dose?"] });
   assert.deepEqual(validateInsight(result, { medNames: ["Topiramate"] }), result);
 });
 
@@ -243,6 +243,36 @@ for (const text of [...MEDICATION_ADVICE, "Stop taking Excedrin and see how you 
     const keep = "Could this be linked to my cycle?";
     const out = validateInsight(insight({}, { doctor_questions: [text, asked, keep] }), {});
     assert.deepEqual(out.doctor_questions, [keep]);
+  });
+}
+
+for (const question of [
+  "Should I stop taking topiramate?",
+  "Should I switch to a different preventive?",
+  "Is it safe to skip my preventive before a blood test?",
+  "Could I lower my dose of sumatriptan?",
+  "Should I cut back on my ibuprofen?",
+  "Should I stop taking Advil, raise my Topiramate dose or try keto?",
+  "I logged 9 acute days. Should I take more or less of my rescue medicine?",
+]) {
+  test(`a first-person question stays: ${question}`, () => {
+    const out = validateInsight(insight({}, { doctor_questions: [question] }), { medNames: ["Topiramate"] });
+    assert.deepEqual(out.doctor_questions, [question]);
+  });
+}
+
+for (const order of [
+  "Quit Excedrin?",
+  "Stop taking Excedrin?",
+  "Ditch your triptan?",
+  "Should you stop taking topiramate?",
+  "Why not skip the preventive?",
+  "Take more ibuprofen. Is that OK?",
+  "Quit Excedrin. Is that safe?",
+  "Is that OK? Stop taking Excedrin?",
+]) {
+  test(`an order is dropped even as a question: ${order}`, () => {
+    assert.deepEqual(validateInsight(insight({}, { doctor_questions: [order] }), {}).doctor_questions, []);
   });
 }
 

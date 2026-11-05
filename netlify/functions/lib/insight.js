@@ -30,9 +30,11 @@ export const INSIGHT_SCHEMA = objectOf({
 
 const MEDICATION_ADVICE = ["stop taking", "dose", "dosage", "start taking", "increase your", "reduce your med"];
 const MEDICATION_WORDS = /\b(?:medications?|medicines?|meds?|pills?|preventives?|rescue|supplements?|prescriptions?|tablets?|capsules?|painkillers?|drugs?|nsaids?)\b|\b\d+(?:\.\d+)?\s*(?:mg|mcg|milligrams?)\b/;
-// What a doctor question may not say, even with a question mark on the end. This
-// leans strict: "should I skip dairy?" goes too, and losing a question costs little.
-const MEDICATION_ORDERS = /\b(?:stop|start) taking\b|\btry(?:ing)? taking\b|\btak(?:e|ing) (?:more|less|extra|another|fewer)\b|\bcut(?:ting)? (?:back|down)\b|\bskip(?:ping)?\b|\bswitch(?:ing)?\b|\b(?:doubl(?:e|ing)|halv(?:e|ing)) (?:up on )?(?:your|my|the)\b|\b(?:rais(?:e|ing)|increas(?:e|ing)|lower(?:ing)?|reduc(?:e|ing)|decreas(?:e|ing)|doubl(?:e|ing)|halv(?:e|ing)|chang(?:e|ing)|adjust(?:ing)?|cut(?:ting)?)\b[^.!?]*\b(?:dose|dosage)\b/;
+// Words that give an order when nobody is asking. A first-person question may use
+// them, because asking a doctor is the allowed path.
+const MEDICATION_ORDERS = /\bstart taking\b|\btry(?:ing)? taking\b|\btak(?:e|ing) (?:more|less|extra|another|fewer)\b|\b(?:stop(?:ping)?|quit(?:ting)?|ditch(?:ing)?|paus(?:e|ing)|drop(?:ping)?)\b|\bcut(?:ting)? (?:back|down)\b|\bskip(?:ping)?\b|\bswitch(?:ing)?\b|\b(?:doubl(?:e|ing)|halv(?:e|ing)) (?:up on )?(?:your|my|the)\b|\b(?:rais(?:e|ing)|increas(?:e|ing)|lower(?:ing)?|reduc(?:e|ing)|decreas(?:e|ing)|doubl(?:e|ing)|halv(?:e|ing)|chang(?:e|ing)|adjust(?:ing)?|cut(?:ting)?)\b[^.!?]*\b(?:dose|dosage)\b/;
+const ASKS = /^(?:should|shall|could|can|would|will|might|may|must|is|are|am|was|were|do|does|did|has|have|how|what|when|where|which|who|why)\b/;
+const FIRST_PERSON = /\b(?:i|me|my)\b/;
 // "Try" and a medicine form, for the products no list can keep up with.
 const TRY_MEDICINE = /\btry(?:ing)? taking\b|\btry(?:ing)?\b[^.!?]*\b(?:gumm(?:y|ies)|pills?|drops|capsules?|softgels?|lozenges?|tinctures?|cbd|benadryl)\b/;
 
@@ -107,7 +109,18 @@ const isUnsafe = (value, medicines) => {
 
 const isText = (value) => typeof value === "string" && value.trim() !== "";
 const isNote = (value) => value === null || typeof value === "string";
-const isQuestion = (value) => value.trim().endsWith("?") && !MEDICATION_ORDERS.test(normalize(value));
+
+// "Quit Excedrin?" is an order with a question mark, so anything asked has to open
+// like a question, and order words need the person asking about themselves.
+const isFineSentence = (sentence) => {
+  const asked = sentence.endsWith("?");
+  if (asked && !ASKS.test(sentence)) return false;
+  return !MEDICATION_ORDERS.test(sentence) || (asked && FIRST_PERSON.test(sentence));
+};
+const isQuestion = (value) => {
+  const trimmed = normalize(value).trim();
+  return trimmed.endsWith("?") && trimmed.split(/(?<=[.!?])\s+/).every(isFineSentence);
+};
 
 function validTryNext(next) {
   if (typeof next !== "object" || next === null) return false;
@@ -119,7 +132,7 @@ function validTryNext(next) {
 // Returns the result with only its known fields, or null if it is malformed or
 // breaks a safety rule. Doctor questions may name medicines and bigger food
 // changes, which is the allowed path, but one that is not a question or gives an
-// order is dropped on its own. medication_note is never Claude's: any sent is
+// order is dropped on its own. "Should I stop taking X?" stays. medication_note is never Claude's: any sent is
 // ignored and it stays null, for the caller to fill from the engine's counts.
 export function validateInsight(result, { medNames = [] } = {}) {
   if (typeof result !== "object" || result === null || !validTryNext(result.try_next)) return null;
