@@ -2,6 +2,7 @@
 // editing, plus saving, field wiring and filling fields from a screenshot.
 import { data, emptyOnError } from './data.js';
 import { localDate, nowTime, shortDate } from './dates.js';
+import { closedHeadacheTimes } from './headache.js';
 import { $, $$, escapeHtml, xIcon, singleSelect, multiSelect, getSingle, getMulti, setChip, setOn } from './ui.js';
 
 const SHEET_TITLES = {food:'Food', headache:'Headache', prodrome:'Early signs', meds:'Meds', sleep:'Sleep', workout:'Exercise', period:'Period', hydration:'Water', note:'Note'};
@@ -9,6 +10,8 @@ const SCREENSHOT_TYPES = ['food','sleep','workout'];
 
 let currentType = 'food';
 let editingId = null;
+let editingEntry = null;   // the stored entry being edited, so open/start_at/end_at survive
+let earlierMode = false;   // "Log an earlier headache": date and time are editable
 let saving = false;
 let interruptions = [];
 const draftTimes = {};      // a time set in one type's sheet stays with that type
@@ -35,7 +38,7 @@ function renderInterruptions(){
 }
 
 // ---------- Build entry payload ----------
-function buildEntry(){
+function buildEntry(date){
   const time = $('#entryTime').value || nowTime();
   const base = { type: currentType, time };
   if(currentType==='food'){
@@ -45,13 +48,15 @@ function buildEntry(){
   }
   if(currentType==='headache'){
     const sevBtn = $('#severityRow').querySelector('.sev-btn.on');
+    const duration = $('#headacheDuration').value || null;
     return {...base,
       severity: sevBtn ? parseInt(sevBtn.dataset.val) : null,
-      duration: $('#headacheDuration').value || null,
+      duration,
       fog: getSingle('#fogRow'),
       dizziness: getSingle('#dizzyRow'),
       symptoms: getMulti('#symptomsRow'),
-      note: $('#headacheNote').value.trim() || null };
+      note: $('#headacheNote').value.trim() || null,
+      ...headacheTiming(date, time, duration) };
   }
   if(currentType==='prodrome'){
     const symptoms = getMulti('#prodromeRow');
@@ -103,6 +108,20 @@ function buildEntry(){
     if(!stress && !text) return null;
     return {...base, stress, text: text||null};
   }
+}
+// What marks a headache as open or closed, and when it began and ended.
+// Old entries have none of these and stay that way.
+function headacheTiming(date, time, duration){
+  const prior = editingEntry;
+  if(earlierMode) return { open: false, ...closedHeadacheTimes(date, time, duration) };
+  if(!prior || !prior.start_at) return {};
+  const start_at = closedHeadacheTimes(date, time, null).start_at;
+  if(prior.open === true) return { open: true, start_at };
+  const timing = { open: false, start_at };
+  // An end time set by "My headache ended" stays unless the duration was changed.
+  if(prior.end_at && String(duration ?? '') === String(prior.duration ?? '')) timing.end_at = prior.end_at;
+  else if(duration) timing.end_at = closedHeadacheTimes(date, time, duration).end_at;
+  return timing;
 }
 function computeSleepHours(bed, wake){
   if(!bed || !wake) return null;
@@ -189,16 +208,18 @@ async function whileSaving(send){
 
 async function saveSheet(){
   if(saving) return;
-  const entry = buildEntry();
+  const date = earlierMode ? ($('#sheetDate').value || $('#entryDate').value) : $('#entryDate').value;
+  const entry = buildEntry(date);
   if(!entry){
     $$('#fields-'+currentType+' details').forEach(d=>{ d.open = true; });
     showSheetError('Add at least one detail before saving.');
     return;
   }
-  const type = currentType, id = editingId, date = $('#entryDate').value;
+  const type = currentType, id = editingId;
   const remember = type==='meds' && $('#medSaveCatalog').checked;
   const result = await whileSaving(()=> commitDraft({ id, date, entry }, ()=>{
-    editingId = null;
+    editingId = null; editingEntry = null; earlierMode = false;
+    $('#sheetDateField').hidden = true;
     clearDraft(type);
   }));
   if(!result.ok){
@@ -211,7 +232,7 @@ async function saveSheet(){
   }
   if(remember) saveMedToCatalog(entry.name, entry.category, entry.dose);
   closeSheet();
-  onEntrySaved();
+  onEntrySaved({ type });
 }
 
 // A tap on a saved medication logs it at once and leaves the sheet open, so
@@ -222,7 +243,7 @@ export async function logQuickMed(med){
   const entry = { type:'meds', time: $('#entryTime').value || nowTime(), ...med };
   const send = async ()=>{
     const result = await whileSaving(()=> submitEntry(date, entry));
-    if(result.ok) onEntrySaved();
+    if(result.ok) onEntrySaved({ type: 'meds' });
     else{
       presentSheet();
       showSheetError(`Not saved: ${result.error}`, send);
@@ -269,38 +290,50 @@ function showSheetDay(){
 }
 // An edit that was closed unsaved is dropped: the stored entry is unchanged.
 function abandonEdit(){
-  if(!editingId) return;
-  editingId = null;
+  if(!editingId && !earlierMode) return;
+  editingId = null; editingEntry = null; earlierMode = false;
+  $('#sheetDateField').hidden = true;
   clearDraft(currentType);
 }
 
-export function openSheet(type){
+// `earlier` opens the headache form for one that is over: date and time show.
+export function openSheet(type, { earlier = false } = {}){
   abandonEdit();
   hideSheetError();
   showSheetDay();
   const more = type==='more';
   $('#moreList').hidden = !more;
   $('#sheetForm').hidden = more;
-  $('#sheetTitle').textContent = more ? 'More' : SHEET_TITLES[type];
+  $('#sheetTitle').textContent = more ? 'More' : earlier ? 'Earlier headache' : SHEET_TITLES[type];
   $('#sheetSaveBtn').textContent = 'Save';
   if(!more) showType(type);
+  if(earlier){
+    earlierMode = true;
+    $('#sheetDate').max = localDate();
+    $('#sheetDate').value = $('#entryDate').value;
+    $('#sheetDateField').hidden = false;
+    if(!$('#entryTime').value) $('#entryTime').value = nowTime();
+    showTimeField(true);
+    $('#sheetDay').hidden = true;
+  }
   presentSheet();
 }
 
-export function openEditSheet(entry){
+// `title` lets the headache flow call its follow-up sheet "Headache details".
+export function openEditSheet(entry, { title } = {}){
   if(!SHEET_TITLES[entry.type]) return;
   abandonEdit();
   hideSheetError();
   showSheetDay();
   clearDraft(entry.type);
-  editingId = entry.id;
+  editingId = entry.id; editingEntry = entry;
   showType(entry.type);
   fillFields(entry);
   revealFilledDetail(entry.type);
   showTimeField(true);
   $('#moreList').hidden = true;
   $('#sheetForm').hidden = false;
-  $('#sheetTitle').textContent = 'Edit ' + SHEET_TITLES[entry.type].toLowerCase();
+  $('#sheetTitle').textContent = title || 'Edit ' + SHEET_TITLES[entry.type].toLowerCase();
   $('#sheetSaveBtn').textContent = 'Save changes';
   presentSheet();
 }
@@ -442,9 +475,10 @@ export function initForms(callbacks){
     showTimeField(true);
     $('#entryTime').focus();
   });
-  $$('#moreList .more-item').forEach(item=>{
+  $$('#moreList .more-item[data-more]').forEach(item=>{
     item.addEventListener('click', ()=> openSheet(item.dataset.more));
   });
+  $('#earlierHeadacheBtn').addEventListener('click', ()=> openSheet('headache', { earlier: true }));
 
   $('#medOther').addEventListener('toggle', syncSaveButton);
   $('#sheetForm').addEventListener('submit', (ev)=>{

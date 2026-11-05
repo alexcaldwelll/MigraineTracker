@@ -101,6 +101,19 @@
 
     <button type="button" class="headache-btn" id="headacheBtn">I have a headache</button>
 
+    <div class="warn-box headache-note" id="headacheError" role="alert" hidden>
+      <div id="headacheErrorText"></div>
+      <button type="button" class="btn small" id="headacheRetryBtn">Retry</button>
+    </div>
+    <div class="warn-box headache-note" id="headacheStale" hidden>
+      <b>Still going?</b>
+      <div id="headacheStaleText"></div>
+      <button type="button" class="btn small" id="headacheStillBtn">Yes, still going</button>
+      <label for="headacheEndAt">It ended at</label>
+      <input type="datetime-local" id="headacheEndAt">
+      <button type="button" class="btn small" id="headacheEndAtBtn">Save end time</button>
+    </div>
+
     <div class="tiles">
       <button type="button" class="tile" data-sheet="food"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><use href="#icon-food"></use></svg><span class="tile-name">Food</span><span class="tile-status"></span></button>
       <button type="button" class="tile" data-sheet="sleep"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><use href="#icon-sleep"></use></svg><span class="tile-name">Sleep</span><span class="tile-status"></span></button>
@@ -163,6 +176,7 @@
     <button type="button" class="more-item" data-more="prodrome"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><use href="#icon-prodrome"></use></svg><span>Early signs</span></button>
     <button type="button" class="more-item" data-more="workout"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><use href="#icon-workout"></use></svg><span>Exercise</span></button>
     <button type="button" class="more-item" data-more="note"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><use href="#icon-note"></use></svg><span>Note</span></button>
+    <button type="button" class="more-item" id="earlierHeadacheBtn"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><use href="#icon-headache"></use></svg><span>Log an earlier headache</span></button>
   </div>
 
   <form id="sheetForm" novalidate>
@@ -347,6 +361,11 @@
         <input type="file" id="screenshotFile" accept="image/*">
         <div id="screenshotStatus" class="sub"></div>
       </details>
+
+      <div id="sheetDateField" hidden>
+        <label for="sheetDate">Date</label>
+        <input type="date" id="sheetDate">
+      </div>
 
       <div class="sheet-time">
         <button type="button" class="link-btn" id="changeTimeBtn">Now · change time</button>

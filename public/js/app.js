@@ -4,7 +4,7 @@ import { createSupabaseBackend, setBackend } from './data.js';
 import { initForms } from './forms.js';
 import { renderHistory, initHistory } from './history.js';
 import { renderAnalysis, initInsights } from './insights.js';
-import { renderToday, initToday } from './today.js';
+import { refreshHeadache, renderToday, initToday } from './today.js';
 import { $$, activateTab } from './ui.js';
 
 const SUPABASE_URL = 'https://piiahxbeqsrzagjximoh.supabase.co';
@@ -18,6 +18,7 @@ function initApp(){
   if(appInitialized) return;
   appInitialized = true;
   renderToday();
+  refreshHeadache();
 }
 
 $$('nav button').forEach(btn=>{
@@ -29,7 +30,7 @@ $$('nav button').forEach(btn=>{
 });
 
 initForms({
-  onEntrySaved: renderToday,
+  onEntrySaved: (entry)=>{ if(entry && entry.type==='headache') refreshHeadache(); renderToday(); },
   onMedSaved: renderToday,
 });
 initToday({ onEntryDeleted: renderHistory });

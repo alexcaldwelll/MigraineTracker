@@ -2,11 +2,16 @@
 // entries, plus the meds modal. Entry rows are shared with History.
 import { data, emptyOnError } from './data.js';
 import { dayTitle, localDate, shiftDate, shortDate } from './dates.js';
-import { logQuickMed, openEditSheet, openSheet } from './forms.js';
+import { commitDraft, logQuickMed, openEditSheet, openSheet, submitEntry } from './forms.js';
+import { endHeadache, findOpenHeadache, isStale, startHeadache } from './headache.js';
 import { $, $$, escapeHtml, svgIcon, xIcon, activateTab, getSingle } from './ui.js';
 
 let onEntryDeleted = ()=>{};
-let renderCount = 0;  // only the newest render may draw, when days change quickly
+let renderCount = 0;
+let allDays = [];                  // every day from listAll, so an open headache from an earlier day is found
+let needsReload = true;            // allDays may be behind the database
+let headacheBusy = false;          // one headache save at a time, so a double tap cannot log two
+let stillGoingDismissed = false;   // "Yes, still going" lasts until the page reloads  // only the newest render may draw, when days change quickly
 
 // ---------- Tile status ----------
 const sameName = name => String(name ?? '').trim().toLowerCase();
@@ -77,6 +82,107 @@ async function deleteMed(id){
   renderMedsModal(); renderToday();
 }
 
+// ---------- Headache button ----------
+const pad = n => String(n).padStart(2,'0');
+const toLocalInput = d => `${localDate(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+function showHeadacheError(message, retry){
+  $('#headacheErrorText').textContent = message;
+  $('#headacheRetryBtn').hidden = !retry;
+  $('#headacheRetryBtn').onclick = retry || null;
+  $('#headacheError').hidden = false;
+}
+function hideHeadacheError(){ $('#headacheError').hidden = true; }
+
+// Reads every day once (at startup, and again after a headache changes). The
+// last good copy stays if the read fails.
+export async function refreshHeadache(){
+  try{
+    allDays = await data().listAll();
+    needsReload = false;
+  }catch(error){
+    console.error(error);
+  }
+  renderHeadacheButton();
+  return !needsReload;
+}
+export function renderHeadacheButton(){
+  const open = findOpenHeadache(allDays);
+  const btn = $('#headacheBtn');
+  btn.textContent = open ? 'My headache ended' : 'I have a headache';
+  btn.classList.toggle('ongoing', Boolean(open));
+  const stale = Boolean(open) && isStale(open, new Date()) && !stillGoingDismissed;
+  $('#headacheStale').hidden = !stale;
+  if(stale){
+    const start = new Date(open.start_at || `${open.date}T${open.time}:00`);
+    $('#headacheStaleText').textContent = `Your headache started ${shortDate(localDate(start))} at ${open.time}. Is it still going, or when did it end?`;
+    $('#headacheEndAt').min = toLocalInput(start);
+    $('#headacheEndAt').max = toLocalInput(new Date());
+    if(!$('#headacheEndAt').value) $('#headacheEndAt').value = toLocalInput(new Date());
+  }
+}
+
+// Runs one headache save. The button stays disabled until it finishes.
+async function runHeadache(task){
+  if(headacheBusy) return;
+  headacheBusy = true;
+  $('#headacheBtn').disabled = true;
+  hideHeadacheError();
+  try{
+    if(needsReload && !(await refreshHeadache())){
+      showHeadacheError('Could not check for a headache that is already open. Try again.', ()=> runHeadache(task));
+      return;
+    }
+    await task();
+  }finally{
+    headacheBusy = false;
+    $('#headacheBtn').disabled = false;
+  }
+}
+async function beginHeadache(entry){
+  if(!entry) return;  // one is already open
+  const { date, ...row } = entry;
+  const result = await submitEntry(date, row);
+  if(!result.ok){
+    // Retry saves this same attempt, with the time of the first tap.
+    showHeadacheError(`Not saved: ${result.error}`, ()=> runHeadache(()=> beginHeadache(startHeadache(allDays, new Date(entry.start_at)))));
+    return;
+  }
+  needsReload = true;
+  await refreshHeadache();
+  showDay(date);
+  const saved = findOpenHeadache(allDays);
+  if(saved) openEditSheet(saved, { title: 'Headache details' });
+}
+async function finishHeadache(open, endAt){
+  const { id, date, ...row } = endHeadache(open, endAt);
+  const result = await commitDraft({ id, date, entry: row }, ()=>{});
+  if(!result.ok){
+    showHeadacheError(`Not saved: ${result.error}`, ()=> runHeadache(()=> finishHeadache(open, endAt)));
+    return;
+  }
+  needsReload = true;
+  await refreshHeadache();
+  renderToday();
+}
+function onHeadacheTap(){
+  runHeadache(async ()=>{
+    const open = findOpenHeadache(allDays);
+    if(open) await finishHeadache(open, new Date());
+    else await beginHeadache(startHeadache(allDays, new Date()));
+  });
+}
+function onEndAtSaved(){
+  const open = findOpenHeadache(allDays);
+  const end = new Date($('#headacheEndAt').value);
+  const start = open && new Date(open.start_at || `${open.date}T${open.time}:00`);
+  if(!open || Number.isNaN(end.getTime()) || end < start || end > new Date()){
+    showHeadacheError('Pick a time between when the headache started and now.');
+    return;
+  }
+  runHeadache(()=> finishHeadache(open, end));
+}
+
 // ---------- The day ----------
 function renderDayHeader(date, isToday){
   $('#dayTitle').textContent = dayTitle(date);
@@ -107,6 +213,7 @@ export async function renderToday(){
   renderTiles(entries, meds, isToday);
   renderQuickMeds(entries, meds);
   renderEntryList(entries, date);
+  renderHeadacheButton();
 }
 
 export function wireEntryRows(containerSel, date){
@@ -125,6 +232,7 @@ export function wireEntryRows(containerSel, date){
   $(containerSel).querySelectorAll('.x').forEach(x=>{
     x.addEventListener('click', async ()=>{
       await deleteEntry(x.dataset.id);
+      refreshHeadache();
       renderToday(); onEntryDeleted();
     });
   });
@@ -144,6 +252,7 @@ function entryBody(e){
   if(e.type==='food') return escapeHtml(e.text);
   if(e.type==='headache'){
     const parts=[];
+    if(e.open===true) parts.push('Ongoing');
     if(e.severity!=null) parts.push(`Severity ${e.severity}`);
     if(e.duration) parts.push(`${e.duration}h`);
     if(e.fog) parts.push(`Fog: ${e.fog}`);
@@ -225,8 +334,9 @@ export function initToday(callbacks){
   $('#dayFwd').addEventListener('click', ()=> showDay(shiftDate($('#entryDate').value, 1)));
   $('#entryDate').addEventListener('change', ()=> showDay($('#entryDate').value || localDate()));
 
-  // Task 9 replaces this with the one-tap headache flow.
-  $('#headacheBtn').addEventListener('click', ()=> openSheet('headache'));
+  $('#headacheBtn').addEventListener('click', onHeadacheTap);
+  $('#headacheStillBtn').addEventListener('click', ()=>{ stillGoingDismissed = true; renderHeadacheButton(); });
+  $('#headacheEndAtBtn').addEventListener('click', onEndAtSaved);
   $$('.tile').forEach(tile=> tile.addEventListener('click', ()=> openSheet(tile.dataset.sheet)));
 
   $('#settingsBtn').addEventListener('click', ()=>{ $('#medsModal').style.display='block'; renderMedsModal(); });
