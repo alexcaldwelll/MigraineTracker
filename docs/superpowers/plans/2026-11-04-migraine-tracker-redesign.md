@@ -143,9 +143,20 @@ test('error bodies never contain the API key or stack traces', ...)
 
 ### Task 5: Ship security
 
-- [ ] **Step 1: HANDOFF, before deploying.** Owner runs `supabase/schema.sql` in the SQL editor, disables public sign-ups, reviews existing accounts, reviews Anthropic usage since July, rotates the key in Netlify, and sets a monthly spend limit.
-- [ ] **Step 2: Deploy with the owner's go-ahead.** Run `npm install`, then `netlify deploy --prod`.
-- [ ] **Step 3: Verify against the live URL.**
+The release runs in this exact order, and Task 17's public repo is its last step:
+
+1. Run the SQL.
+2. Turn sign-ups off and confirm anonymous sign-ins are off.
+3. Rotate the key, revoke the old one, and set the spend limit.
+4. Deploy and confirm `/.netlify/functions/analyze` returns 404.
+5. Only then make the repo public.
+
+- [ ] **Step 1: HANDOFF, before deploying.** In this order, the owner:
+  1. Runs `supabase/schema.sql` in the SQL editor.
+  2. Turns public sign-ups off, confirms anonymous sign-ins are off, and reviews existing accounts.
+  3. Reviews Anthropic usage since July, rotates the key in Netlify, revokes the old key, and sets a monthly spend limit.
+- [ ] **Step 2: Deploy with the owner's go-ahead.** Run `npm install`. A CLI deploy can upload the old `analyze` function still sitting in the local build folder, so delete `.netlify/functions` by hand first, then run `netlify deploy --prod`. Delete nothing else in `.netlify/`.
+- [ ] **Step 3: Verify against the live URL.** The first check must pass before anything is made public.
   - `POST /.netlify/functions/analyze` returns 404.
   - `POST /.netlify/functions/ai` with no token returns 401.
   - `GET /schema.sql` returns 404.
@@ -433,8 +444,8 @@ No browser APIs, so the function can import it.
 - Create: `README.md`, `docs/screenshots/*`
 
 - [ ] **Step 1: Write the README.** Cover what the app is, live and demo links, screenshots from the demo, an architecture summary, the security approach, how the Insights engine works, and how to run tests.
-- [ ] **Step 2: Scan for secrets.** Run `git log -p --all | grep -Ei 'sk-ant|service_role'`. Expected: no output.
+- [ ] **Step 2: Scan for secrets.** Run `git log -p --all | grep -Ei 'sk-ant|service_role'`. Expected: the only hits are the fake test strings (`sk-ant-test-secret-key`, `sk-ant-secret`) and this plan's own text. Anything else is a real leak, so stop.
 - [ ] **Step 3: Check tracked files.** Run `git ls-files`. Expected: no `.superpowers`, `.netlify`, `.claude`, `.agents`.
 - [ ] **Step 4: Commit.** `docs: add README`
-- [ ] **Step 5: HANDOFF.** With the owner's approval, create the public GitHub repo, push `main`, and connect it to Netlify so pushes deploy automatically. Set Node 24 in Netlify if needed. The `gh` CLI isn't installed, so the owner either creates the repo on github.com or runs `brew install gh`.
+- [ ] **Step 5: HANDOFF.** This is step 5 of the release order in Task 5, so it comes only after the SQL has run, sign-ups are off, the key is rotated, and the deploy shows `/.netlify/functions/analyze` returning 404. With the owner's approval, create the public GitHub repo, push `main`, and connect it to Netlify so pushes deploy automatically. `netlify.toml` sets Node 24. The `gh` CLI isn't installed, so the owner either creates the repo on github.com or runs `brew install gh`.
 - [ ] **Step 6: Verify.** A pushed change deploys. The live site and demo both load, and the checks in Task 5 Step 3 still pass.
