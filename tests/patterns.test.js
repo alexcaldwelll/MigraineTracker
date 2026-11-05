@@ -23,14 +23,16 @@ const rice = () => food("12:00", item("rice", { food_type: null })); // makes a 
 const daysOf = (log) => Object.entries(log).map(([n, entries]) => ({ date: date(Number(n)), entries }));
 const factor = (stats, key) => stats.factors.find((f) => f.key === key);
 
-// 40 clean two-day spans (days 0 to 79, food in each, cheddar in 6), then five attacks on odd
-// days 81 to 89, one day apart so no span fits, with cheddar before the first three.
+// 40 clean two-day spans (days 0 to 79, food in each, cheddar in 6), then five
+// attacks 10 days apart with nothing logged between, cheddar before the first three.
 function fixture(foodName = "cheddar", over = {}) {
   const log = {};
   for (let n = 0; n < 80; n++) log[n] = n % 2 ? [note()] : [rice()];
   for (const n of [0, 2, 4, 6, 8, 10]) log[n].push(food("12:00", item(foodName, over)));
-  for (const n of [81, 83, 85, 87, 89]) log[n] = [headache("10:00")];
-  for (const n of [80, 82, 84]) log[n] = [food("20:00", item(foodName, over))];
+  [81, 91, 101, 111, 121].forEach((n, i) => {
+    log[n] = [headache("10:00")];
+    if (i < 3) log[n].push(food("08:00", item(foodName, over)));
+  });
   return daysOf(log);
 }
 
@@ -40,14 +42,14 @@ function statsWith(name, hits, controlHits, over = {}) {
   for (let n = 0; n < 80; n++) log[n] = n % 2 ? [note()] : [rice()];
   for (let i = 0; i < controlHits; i++) log[i * 2].push(food("12:00", item(name, over)));
   for (let i = 0; i < 8; i++) {
-    log[81 + i * 2] = [headache("10:00")];
-    if (i < hits) log[80 + i * 2] = [food("20:00", item(name, over))];
+    log[81 + i * 10] = [headache("10:00")];
+    if (i < hits) log[81 + i * 10].push(food("08:00", item(name, over)));
   }
-  return buildStats(daysOf(log), { now: nowAfter(120) });
+  return buildStats(daysOf(log), { now: nowAfter(170) });
 }
 
 test("a food in 3 of 5 lookbacks and 6 of 40 control windows reports those exact counts", () => {
-  const stats = buildStats(fixture(), { now: nowAfter(100) });
+  const stats = buildStats(fixture(), { now: nowAfter(140) });
   assert.equal(stats.attacks, 5);
   const f = factor(stats, "food:cheddar");
   assert.deepEqual(
@@ -159,6 +161,51 @@ test("confidenceFor rests on a Fisher test, corrected for how many factors were 
   assert.equal(confidenceFor(6, 8, { hits: 2, total: 40 }, { tested: 2000, cutoff: -1 }), "early guess", "fails both");
   assert.equal(confidenceFor(5, 8, { hits: 24, total: 40 }), "early guess", "no real difference");
 });
+test("confidenceFor can test separate hits while the plain counts stand", () => {
+  const control = { hits: 2, total: 40 };
+  assert.equal(confidenceFor(6, 8, control, { separate: { hits: 2, total: 2 } }), "early guess", "under 3 separate hits");
+  assert.equal(confidenceFor(6, 8, control, { separate: { hits: 3, total: 3 } }), "moderate");
+  assert.equal(confidenceFor(6, 8, control, { separate: { hits: 4, total: 8 } }), "moderate");
+  assert.equal(confidenceFor(6, 8, control, { separate: { hits: 5, total: 8 } }), "strong");
+});
+
+test("one eating streak before several attacks is one hit for confidence, with plain counts kept", () => {
+  const log = {};
+  for (let n = 0; n < 80; n++) log[n] = n % 2 ? [note()] : [rice()];
+  for (let i = 0; i < 6; i++) { log[81 + i * 2] = [headache("10:00")]; log[80 + i * 2] = [food("20:00", item("streak"))]; }
+  const f = factor(buildStats(daysOf(log), { now: nowAfter(120) }), "food:streak");
+  assert.deepEqual([f.beforeHeadache, f.headacheTotal, f.controlHits, f.controlTotal], [6, 6, 0, 40]);
+  assert.equal(f.confidence, "early guess");
+});
+
+test("exposures with gaps of up to 2 days are one episode, and 3 days are two", () => {
+  // Attacks are 8 days apart, so separate clusters. Food on the attack days, plus
+  // on `steps` days after each. A step of 3 leaves 2 empty days, a step of 4 leaves 3.
+  const confidence = (steps) => {
+    const log = {};
+    for (let n = 0; n < 80; n++) log[n] = n % 2 ? [note()] : [rice()];
+    for (let i = 0; i < 5; i++) {
+      log[81 + i * 8] = [headache("10:00"), food("08:00", item("snack"))];
+      if (i < 4) for (const step of steps) log[81 + i * 8 + step] = [food("08:00", item("snack"))];
+    }
+    return factor(buildStats(daysOf(log), { now: nowAfter(170) }), "food:snack").confidence;
+  };
+  assert.equal(confidence([]), "strong", "5 episodes");
+  assert.equal(confidence([4]), "strong", "gaps of 3 days keep them apart");
+  assert.equal(confidence([3, 6]), "early guess", "gaps of 2 days bridge them into 1 episode");
+});
+
+test("attacks under 7 days apart are one cluster, and 7 days apart are two", () => {
+  const confidence = (gap) => {
+    const log = {};
+    for (let n = 0; n < 80; n++) log[n] = n % 2 ? [note()] : [rice()];
+    for (let i = 0; i < 5; i++) log[81 + i * gap] = [headache("10:00"), food("08:00", item("snack"))];
+    return factor(buildStats(daysOf(log), { now: nowAfter(170) }), "food:snack").confidence;
+  };
+  assert.equal(confidence(7), "strong");
+  assert.equal(confidence(6), "early guess");
+});
+
 test("buildStats gives a repeated factor with a clear gap a strong rating", () => {
   assert.equal(factor(statsWith("red wine", 6, 2), "food:red wine").confidence, "strong");
   assert.equal(factor(statsWith("toast", 6, 28), "food:toast").confidence, "early guess");
@@ -340,7 +387,7 @@ test("one headache with no food logged gives a valid suggestion to log food", ()
 });
 
 test("ruleSuggestion turns the best factor into a trial, with counts in the why", () => {
-  const result = ruleSuggestion(buildStats(fixture(), { now: nowAfter(100) }), []);
+  const result = ruleSuggestion(buildStats(fixture(), { now: nowAfter(140) }), []);
   assertValid(result);
   assert.equal(result.try_next.factor_key, "food:cheddar");
   assert.match(result.try_next.title, /cheddar/);
@@ -506,6 +553,36 @@ test("water and medicines are never food factors", () => {
   assert.deepEqual(stats.factors.filter((f) => f.key.startsWith("food:")).map((f) => f.key), ["food:watermelon"]);
 });
 
+test("medicine names match through doses, punctuation and plurals, both ways round", () => {
+  const foods = (names, logged = [], options = {}) => {
+    const stats = buildStats(daysOf({
+      0: [...logged.map((name) => ({ id: "m", type: "meds", time: "08:00", name, category: "acute" })), food("12:00", ...names.map((n) => item(n)))],
+      1: [headache("10:00")],
+    }), { now: nowAfter(5), ...options });
+    return stats.factors.filter((f) => f.key.startsWith("food:")).map((f) => f.key);
+  };
+  assert.deepEqual(foods(["ibuprofen, 400mg", "ibuprofen-200", "advils", "two aspirins", "Tylenol 500 mg tablets"]), []);
+  assert.deepEqual(foods(["rizatriptan"], ["Rizatriptan 10mg"]), []);
+  assert.deepEqual(foods(["zolmig"], ["Zolmig Rapimelt"]), [], "the food is part of the med's name");
+  assert.deepEqual(foods(["propranolols, 40 mg"], ["Propranolol"]), []);
+  assert.deepEqual(foods(["propranolol tablets"], ["Propranolol 40mg"]), [], "doses and forms do not count as name words");
+  assert.deepEqual(foods(["half a pink pill"], [], { medNames: ["Pink pill"] }), [], "every word of the med appears");
+  assert.deepEqual(foods(["eletriptan", "frovatriptans 2.5mg"]), [], "any triptan, listed or not");
+  assert.deepEqual(foods(["bread", "pasta"], ["Zolmig Rapimelt"]), ["food:bread", "food:pasta"]);
+});
+
+test("caffeine wording also goes by name, for items with no tag", () => {
+  for (const name of ["coffee", "Iced latte", "espresso", "caffeine", "cold brew", "energy drink", "black tea", "matcha", "cola", "cappuccinos"]) {
+    const stats = statsWith(name, 6, 2);
+    const { try_next } = ruleSuggestion(stats, []);
+    assert.equal(try_next.factor_key, `food:${name.toLowerCase()}`);
+    assert.doesNotMatch(try_next.title, /skip/i, name);
+    assert.match(try_next.action, /gradually over a week or so/, name);
+  }
+  assert.match(ruleSuggestion(statsWith("cheese", 6, 2), []).try_next.title, /^Skip/);
+  assert.match(ruleSuggestion(statsWith("steak", 6, 2), []).try_next.title, /^Skip/, "tea inside a word does not count");
+});
+
 test("caffeine suggestions say to ease down gradually", () => {
   const stats = statsWith("coffee", 6, 2, { tags: ["caffeine"] });
   const food = ruleSuggestion(stats, []);
@@ -570,7 +647,7 @@ test("keep_logging names the biggest gap, including unsplit old entries", () => 
 });
 
 test("ruleSuggestion tolerates missing pastTrials and malformed trials", () => {
-  const stats = buildStats(fixture(), { now: nowAfter(100) });
+  const stats = buildStats(fixture(), { now: nowAfter(140) });
   assertValid(ruleSuggestion(stats));
   assertValid(ruleSuggestion(stats, [null, {}, { status: "completed" }, { suggestion: {}, status: "completed", result: { before: 1, during: 1 } }]));
 });
@@ -648,16 +725,51 @@ test("on pure noise, moderate or strong stays rare", () => {
   });
 });
 
+// Foods run in streaks and attacks in clusters, independent of each other.
+function simulateStreaks(random, { nDays, nFoods, foodLength, clusterLength, pFood = 0.15, pCluster = 0.03 }) {
+  const eating = Array(nFoods).fill(false);
+  let inCluster = false;
+  const days = [];
+  for (let n = 0; n < nDays; n++) {
+    const items = [];
+    for (let f = 0; f < nFoods; f++) {
+      eating[f] = eating[f] ? random() >= 1 / foodLength : random() < pFood / (foodLength * (1 - pFood));
+      if (eating[f]) items.push(item(`food${f}`));
+    }
+    inCluster = inCluster ? random() >= 1 / clusterLength : random() < pCluster;
+    const entries = [sleep(8), food("12:00", ...items)];
+    if (inCluster) entries.push(headache("18:00"));
+    days.push({ date: date(n), entries });
+  }
+  return buildStats(days, { now: nowAfter(nDays + 30) });
+}
+
+test("on streaky noise, moderate or strong stays at or below 10%", () => {
+  const scenarios = [
+    { nDays: 180, nFoods: 40, foodLength: 4, clusterLength: 3.5 },
+    { nDays: 365, nFoods: 60, foodLength: 4, clusterLength: 3.5 },
+    { nDays: 365, nFoods: 60, foodLength: 7.5, clusterLength: 4.5 },
+  ];
+  const runs = 100;
+  scenarios.forEach((scenario, i) => {
+    const random = prng(2000 + i);
+    let confident = 0;
+    for (let r = 0; r < runs; r++) {
+      if (simulateStreaks(random, scenario).factors.some((f) => f.confidence !== "early guess")) confident++;
+    }
+    assert.ok(confident / runs <= 0.1, `${confident}/${runs} in scenario ${i}`);
+  });
+});
+
 test("a real signal of 6 of 8 against 2 of 40 survives 300 other factors", () => {
   const log = {};
   for (let n = 0; n < 80; n++) log[n] = n % 2 ? [note()] : [rice()];
   log[0].push(food("12:00", item("trigger"))); log[2].push(food("12:00", item("trigger")));
   for (let i = 0; i < 8; i++) {
-    log[81 + i * 2] = [headache("10:00")];
     const noise = Array.from({ length: 300 }, (_, f) => f).filter((f) => f % 8 === i).map((f) => item(`noise ${f}`));
-    log[80 + i * 2] = [food("20:00", ...noise, ...(i < 6 ? [item("trigger")] : []))];
+    log[81 + i * 10] = [headache("10:00"), food("08:00", ...noise, ...(i < 6 ? [item("trigger")] : []))];
   }
-  const stats = buildStats(daysOf(log), { now: nowAfter(120) });
+  const stats = buildStats(daysOf(log), { now: nowAfter(170) });
   const f = factor(stats, "food:trigger");
   assert.ok(stats.factors.length > 300);
   assert.deepEqual([f.beforeHeadache, f.headacheTotal, f.controlHits, f.controlTotal], [6, 8, 2, 40]);
@@ -689,6 +801,9 @@ test("the same log gives the same results in UTC and in New York", () => {
       // Logged in New York: 10:00 local is 14:00Z, and lunch is after the attack.
       { date: "2026-03-10", entries: [food("12:00", "after attack"), { type: "headache", time: "10:00", start_at: "2026-03-10T14:00:00.000Z", end_at: "2026-03-10T15:00:00.000Z" }] },
       { date: "2026-03-20", entries: [food("12:00", "toast")] },
+      // 20 days apart across the end of daylight saving: one period, not two.
+      { date: "2026-10-20", entries: [{ type: "period", time: "08:00" }] },
+      { date: "2026-11-09", entries: [{ type: "period", time: "08:00" }] },
       // 22:00 local is 02:00Z the next day. It ends at 23:30 local, the same date.
       { date: "2026-03-24", entries: [{ type: "headache", time: "22:00", start_at: "2026-03-25T02:00:00.000Z", end_at: "2026-03-25T03:30:00.000Z" }] },
       // 22:00 local to 01:00 local crosses midnight.
@@ -705,4 +820,5 @@ test("the same log gives the same results in UTC and in New York", () => {
   const { stats, dates } = JSON.parse(utc);
   assert.deepEqual(dates, ["2026-03-10", "2026-03-24", "2026-03-28", "2026-03-29"]);
   assert.deepEqual(stats.factors.filter((f) => f.key.startsWith("food:")).map((f) => f.key), ["food:late snack"]);
+  assert.equal(stats.cycle.periodStarts, 1);
 });

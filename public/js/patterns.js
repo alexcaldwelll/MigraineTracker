@@ -16,6 +16,13 @@
 // window. `headacheTotal` is therefore counted lookbacks and can be below
 // `attacks`. Something logged between two clustered attacks is not counted.
 //
+// Episodes. One streak of eating something can sit before several attacks, and
+// attacks come in runs, so lookback hits are not independent. Reported counts stay
+// plain lookback counts, but confidence tests separate hits against clusters.
+// Exposures to a factor with gaps of up to 2 days are one episode, attacks under
+// 7 days apart are one cluster, only a cluster's first lookback counts, and each
+// episode counts once.
+//
 // Control windows. Walking forward from the first logged date, two consecutive
 // calendar dates form a control window when:
 //   - neither date is a headache day (every date any headache touches),
@@ -46,10 +53,10 @@ const LOOKBACK_MS = 48 * 3600000;
 
 // Confidence. Logs usually hold under 20 lookbacks and hundreds of foods, so the
 // best-looking factor is often luck. Each factor gets a one-sided Fisher exact
-// test of "more common in lookbacks than in control windows", corrected for the
-// number of factors tested:
-//   strong:      5+ lookbacks, and p below 0.05 / factors tested (Bonferroni).
-//   moderate:    3+ lookbacks, and within a Benjamini-Hochberg cutoff at 0.05.
+// test of "more common in separate hits than in control windows", corrected for
+// the number of factors tested:
+//   strong:      5+ separate hits, and p below 0.05 / factors tested (Bonferroni).
+//   moderate:    3+ separate hits, and within a Benjamini-Hochberg cutoff at 0.05.
 //   early guess: everything else.
 // Both of the first two also need 10+ control windows. On simulated pure noise,
 // moderate or strong fires in 2% of logs or fewer (see tests/patterns.test.js).
@@ -58,6 +65,10 @@ const ALPHA = 0.05;
 const MIN_CONTROLS = 10;
 const MODERATE_HITS = 3;
 const STRONG_HITS = 5;
+
+const DAY_MS = 86400000;
+const EPISODE_GAP_DAYS = 2;
+const CLUSTER_GAP_MS = 7 * DAY_MS;
 
 const logFactorials = [0];
 function logFactorial(n){
@@ -91,12 +102,13 @@ function benjaminiHochbergCutoff(ps){
 
 // hits of total lookbacks, against `control` = { hits, total }. With no control
 // counts nothing can be compared, so it is an early guess. `tested` is how many
-// factors were tested, and `cutoff` the Benjamini-Hochberg cutoff across them.
-export function confidenceFor(hits, total, control, { tested = 1, cutoff = ALPHA / tested } = {}){
+// factors were tested, `cutoff` the Benjamini-Hochberg cutoff across them, and
+// `separate` the hits and total counted as independent, when they differ.
+export function confidenceFor(hits, total, control, { tested = 1, cutoff = ALPHA / tested, separate = { hits, total } } = {}){
   if(!control || control.total < MIN_CONTROLS) return 'early guess';
-  const p = pAgainstControl(hits, total, control);
-  if(hits >= STRONG_HITS && p < ALPHA / tested) return 'strong';
-  if(hits >= MODERATE_HITS && p <= cutoff) return 'moderate';
+  const p = pAgainstControl(separate.hits, separate.total, control);
+  if(separate.hits >= STRONG_HITS && p < ALPHA / tested) return 'strong';
+  if(separate.hits >= MODERATE_HITS && p <= cutoff) return 'moderate';
   return 'early guess';
 }
 
@@ -111,8 +123,12 @@ const SLEEP_BANDS = [
 ];
 // A food item with one of these names would be a macro by another route.
 const MACRO_WORDS = new Set(['protein','proteins','carb','carbs','carbohydrate','carbohydrates','fat','fats']);
+// Tags can be missing (hand-added items start with none), so names count too.
+// Wording only, so plain "tea" counts even though herbal tea has no caffeine.
+const CAFFEINE_NAMES = /\b(?:coffee|espresso|caffeine|latte|cappuccino|americano|macchiato|mocha|cold brew|energy drink|tea|matcha|chai|cola|coke|pepsi)s?\b/;
 // Common pain relievers, in case one lands in the food log without ever being
 // logged as a med. Logged med names and options.medNames are added to these.
+const DOSE_WORDS = new Set(['mg','mcg','ug','g','kg','ml','iu','tablet','caplet','capsule','pill','dose']);
 const COMMON_MEDS = ['advil','aleve','aspirin','acetaminophen','excedrin','ibuprofen','motrin','naproxen','paracetamol','sumatriptan','tylenol'];
 
 // Wall-clock milliseconds for a stored date and time. Only ever compared with
@@ -134,11 +150,26 @@ const isUnsplit = entry => entry.split_status === 'pending'
 const capitalize = text => text.charAt(0).toUpperCase() + text.slice(1);
 const normalName = name => String(name ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
 
+// Lowercase words with dose words dropped and simple plurals made singular.
+const nameWords = name => String(name ?? '').toLowerCase().split(/[^a-z]+/)
+  .map(word=> (word.length > 3 && word.endsWith('s') && !word.endsWith('ss') ? word.slice(0, -1) : word))
+  .filter(word=> word && !DOSE_WORDS.has(word));
+
+const allIn = (words, others) => words.length > 0 && words.every(word=> others.includes(word));
+
+// `meds` holds a nameWords list per med. "Ibuprofen 400mg" matches ibuprofen, and
+// a logged "Excedrin Migraine" matches a food called excedrin. Every triptan ends
+// the same way, so they match without being listed.
+function isMedicine(name, meds){
+  const words = nameWords(name);
+  return words.some(word=> word.endsWith('triptan'))
+    || meds.some(med=> allIn(med, words) || allIn(words, med));
+}
+
 // Macros, water and medicines are never food factors, so nothing downstream can
 // suggest skipping them.
 function isFoodFactor(name, meds){
-  if(!name || MACRO_WORDS.has(name) || /\bwater\b/.test(name)) return false;
-  return !meds.some(med=> ` ${name} `.includes(` ${med} `));
+  return Boolean(name) && !MACRO_WORDS.has(name) && !/\bwater\b/.test(name) && !isMedicine(name, meds);
 }
 
 // Registers each food factor of an entry in `catalog` and returns the keys.
@@ -154,7 +185,7 @@ function foodKeys(entry, meds, catalog){
   for(const item of visibleItems(entry.items)){
     const name = normalName(item.name);
     const tags = Array.isArray(item.tags) ? item.tags : [];
-    if(isFoodFactor(name, meds)) note(`food:${name}`, capitalize(name), tags.includes('caffeine'));
+    if(isFoodFactor(name, meds)) note(`food:${name}`, capitalize(name), tags.includes('caffeine') || CAFFEINE_NAMES.test(name));
     if(FOOD_TYPE_LABELS[item.food_type]) note(`type:${item.food_type}`, FOOD_TYPE_LABELS[item.food_type], false);
     for(const tag of tags) if(TAG_LABELS[tag]) note(`tag:${tag}`, triggerLabel(tag), tag === 'caffeine');
   }
@@ -191,26 +222,76 @@ function readLog(days, meds, catalog){
   return { byDate, foodDates, sleepDates };
 }
 
+const dayNumber = date => wallClock(date, '00:00') / DAY_MS;
+
+// key -> date -> episode number, for every date a factor was logged.
+function exposureEpisodes(byDate){
+  const datesByKey = new Map();
+  for(const date of [...byDate.keys()].sort()){
+    for(const { keys } of byDate.get(date)){
+      for(const key of keys){
+        if(!datesByKey.has(key)) datesByKey.set(key, new Set());
+        datesByKey.get(key).add(date);
+      }
+    }
+  }
+  const episodes = new Map();
+  for(const [key, dates] of datesByKey){
+    const ofDate = new Map();
+    let episode = 0, last = -Infinity;
+    for(const date of dates){
+      if(dayNumber(date) - last - 1 > EPISODE_GAP_DAYS) episode++;
+      last = dayNumber(date);
+      ofDate.set(date, episode);
+    }
+    episodes.set(key, ofDate);
+  }
+  return episodes;
+}
+
+// The attacks that get a lookback, in order, each with its cluster number.
 // Attacks starting under 48 hours after a counted attack join it.
 function countedAttacks(attacks){
   const counted = [];
-  let last = -Infinity;
+  let lastCounted = -Infinity, lastAny = -Infinity, cluster = 0;
   for(const attack of [...attacks].sort((a, b)=> a.start - b.start)){
-    if(attack.start - last < LOOKBACK_MS) continue;
-    counted.push(attack);
-    last = attack.start;
+    if(attack.start - lastAny >= CLUSTER_GAP_MS) cluster++;
+    lastAny = attack.start;
+    if(attack.start - lastCounted < LOOKBACK_MS) continue;
+    counted.push({ ...attack, cluster });
+    lastCounted = attack.start;
   }
   return counted;
 }
 
-function lookbackKeys({ date, start }, byDate){
-  const keys = new Set();
+// { cluster, hits: key -> a date it was logged }. A lookback spans 3 dates, so
+// everything a key has in it falls in one episode.
+function lookbackHits({ date, start, cluster }, byDate){
+  const hits = new Map();
   for(let back = 0; back <= 2; back++){
-    for(const { at, keys: found } of byDate.get(shiftDate(date, -back)) || []){
-      if(at >= start - LOOKBACK_MS && at < start) for(const key of found) keys.add(key);
+    const on = shiftDate(date, -back);
+    for(const { at, keys } of byDate.get(on) || []){
+      if(at >= start - LOOKBACK_MS && at < start) for(const key of keys) hits.set(key, on);
     }
   }
-  return keys;
+  return { cluster, hits };
+}
+
+// key -> first lookbacks of clusters that hit, one per episode. Only the first
+// lookback of a cluster counts, because a whole cluster covers more days than a
+// 48-hour control window.
+function separateHits(lookbacks, episodes){
+  const seen = new Map();
+  let lastCluster = null;
+  for(const { cluster, hits } of lookbacks){
+    if(cluster === lastCluster) continue;
+    lastCluster = cluster;
+    for(const [key, date] of hits){
+      if(!seen.has(key)) seen.set(key, new Set());
+      seen.get(key).add(episodes.get(key).get(date));
+    }
+  }
+  return key => (seen.has(key) ? seen.get(key).size : 0);
 }
 
 function controlWindows(loggedDates, headacheDays, today){
@@ -255,37 +336,41 @@ function buildFactors(lookbacks, spans, { byDate, foodDates, sleepDates }, catal
   // hours, so counting every span's keys gives the hits for either family.
   const inControl = tally(spans.map(span=> new Set(keysIn(span))));
   const totals = { sleep: usable(sleepDates).length, food: usable(foodDates).length };
-  const factors = [...tally(lookbacks)].map(([key, beforeHeadache])=> ({
+  const factors = [...tally(lookbacks.map(l=> l.hits.keys()))].map(([key, beforeHeadache])=> ({
     key, label: catalog.get(key).label, beforeHeadache, headacheTotal: lookbacks.length,
     controlHits: inControl.get(key) || 0, controlTotal: kindOf(key) === 'sleep' ? totals.sleep : totals.food,
   }));
-  const cutoff = benjaminiHochbergCutoff(factors.map(factorP));
+  const clusters = new Set(lookbacks.map(l=> l.cluster)).size;
+  const hitsOf = separateHits(lookbacks, exposureEpisodes(byDate));
+  const separate = f => ({ hits: hitsOf(f.key), total: clusters });
+  const control = f => ({ hits: f.controlHits, total: f.controlTotal });
+  const cutoff = benjaminiHochbergCutoff(factors.map(f=> pAgainstControl(hitsOf(f.key), clusters, control(f))));
   for(const f of factors){
-    f.confidence = confidenceFor(f.beforeHeadache, f.headacheTotal, { hits: f.controlHits, total: f.controlTotal }, { tested: factors.length, cutoff });
+    f.confidence = confidenceFor(f.beforeHeadache, f.headacheTotal, control(f), { tested: factors.length, cutoff, separate: separate(f) });
     if(catalog.get(f.key).caffeine) f.caffeine = true;
   }
   return factors.sort(byEvidence);
 }
 
-// Sorted period start Dates: the first day with a 'period' entry after a gap of
-// 20+ days from the previous one.
+// Sorted period start dates: the first day with a 'period' entry, then any day
+// with one more than 20 days after the previous period day.
 export function findCycleDays(days){
   const periodDates = days.filter(d=> d.entries.some(e=>e.type==='period')).map(d=>d.date).sort();
   const starts = [];
   let last = null;
   periodDates.forEach(dateStr=>{
-    const d = new Date(dateStr+'T00:00:00');
-    if(!last || (d - last)/86400000 > 20){ starts.push(d); }
+    const d = dayNumber(dateStr);
+    if(last===null || d - last > 20){ starts.push(dateStr); }
     last = d;
   });
   return starts;
 }
 
 export function cycleDayFor(dateStr, periodStarts){
-  const d = new Date(dateStr+'T00:00:00');
+  const d = dayNumber(dateStr);
   let best = null;
   periodStarts.forEach(start=>{
-    const diff = Math.round((d - start)/86400000);
+    const diff = d - dayNumber(start);
     if(diff >= -7 && diff <= 35){
       if(best===null || Math.abs(diff) < Math.abs(best)) best = diff;
     }
@@ -342,12 +427,12 @@ export function buildStats(days, { now = new Date(), today = now.toISOString().s
   const headacheDays = headacheDaySet(days);
   const logged = days.filter(d=> d.entries.length);
   const loggedMeds = days.flatMap(d=> d.entries.filter(e=> e.type === 'meds').map(e=> e.name));
-  const meds = [...new Set([...COMMON_MEDS, ...loggedMeds, ...medNames].map(normalName))].filter(Boolean);
+  const meds = [...COMMON_MEDS, ...loggedMeds, ...medNames].map(nameWords).filter(words=> words.length);
   const catalog = new Map();
   const log = readLog(days, meds, catalog);
   const attacks = days.flatMap(({ date, entries })=> entries.filter(isHeadacheEntry)
     .map(entry=> ({ date, start: wallClock(date, entry.time) })));
-  const lookbacks = countedAttacks(attacks).map(attack=> lookbackKeys(attack, log.byDate));
+  const lookbacks = countedAttacks(attacks).map(attack=> lookbackHits(attack, log.byDate));
   const spans = controlWindows(new Set(logged.map(d=> d.date)), headacheDays, today);
   return {
     attacks: attacks.length,
