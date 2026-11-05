@@ -185,10 +185,11 @@ test("the More list holds the five other types in order", () => {
   ]);
 });
 
-test("the entry sheet is one dialog (plus the AI notice) with a named close button and one submit button", () => {
-  assert.deepEqual([...html.matchAll(/<dialog\b[^>]*id="([^"]+)"/g)].map((m) => m[1]), ["sheet", "aiNotice"]);
+test("the entry sheet is one dialog (plus the food item sheet and the AI notice), each with a named close button and one submit button", () => {
+  assert.deepEqual([...html.matchAll(/<dialog\b[^>]*id="([^"]+)"/g)].map((m) => m[1]), ["sheet", "itemSheet", "aiNotice"]);
   assert.match(html, /<button[^>]*id="sheetClose"[^>]*aria-label="Close"/);
-  assert.equal([...html.matchAll(/type="submit"/g)].length, 1);
+  assert.match(html, /<button[^>]*id="itemClose"[^>]*aria-label="Close"/);
+  assert.equal([...html.matchAll(/type="submit"/g)].length, 2);   // entry sheet Save, item sheet Save
 });
 
 test("the tabs are Today, History and Insights, and the header buttons remain", () => {

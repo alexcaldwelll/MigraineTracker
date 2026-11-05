@@ -2,7 +2,8 @@
 // entries, plus the meds modal. Entry rows are shared with History.
 import { data, emptyOnError } from './data.js';
 import { dayTitle, localDate, shiftDate, shortDate } from './dates.js';
-import { commitDraft, logQuickMed, openEditSheet, openSheet, submitEntry } from './forms.js';
+import { dayTotals, formatAmount, itemAmount, splitEntry, triggerLabel, triggerTags } from './food.js';
+import { commitDraft, logQuickMed, openEditSheet, openItemSheet, openSheet, submitEntry } from './forms.js';
 import { endHeadache, findOpenHeadache, isStale, startHeadache } from './headache.js';
 import { $, $$, escapeHtml, svgIcon, xIcon, activateTab, getSingle } from './ui.js';
 
@@ -197,8 +198,9 @@ function renderTiles(entries, meds, isToday){
 function renderEntryList(entries, date){
   $('#todayList').innerHTML = entries.length===0
     ? '<div class="empty">'+svgIcon('calendar',44).replace('class="icon"','class="icon-lg"')+'<div>Nothing logged for this day yet.</div></div>'
-    : entries.map(e=> entryRowHtml(e)).join('');
+    : entries.map(e=> entryRowHtml(e, undefined, { editableItems: true })).join('');
   wireEntryRows('#todayList', date);
+  renderFoodTotals(entries);
 }
 export async function renderToday(){
   const render = ++renderCount;
@@ -216,6 +218,17 @@ export async function renderToday(){
   renderHeadacheButton();
 }
 
+function renderFoodTotals(entries){
+  const box = $('#foodTotals');
+  const t = dayTotals(entries), tags = triggerTags(entries);
+  const any = t.protein_g || t.carbs_g || t.fat_g || tags.length;
+  box.hidden = !any;
+  if(!any){ box.textContent = ''; return; }
+  box.innerHTML = `<div class="lb">Food, estimated</div>
+    <div>${escapeHtml([['protein', t.protein_g], ['carbs', t.carbs_g], ['fat', t.fat_g]].map(([m, g])=> formatAmount(g, m)).join(' · '))}</div>
+    ${tags.length ? `<div class="pill-row" aria-label="Possible triggers logged">${tags.map(tag=>`<span class="pill trigger">${escapeHtml(triggerLabel(tag))}</span>`).join('')}</div>` : ''}`;
+}
+
 export function wireEntryRows(containerSel, date){
   $(containerSel).querySelectorAll('.entry-open').forEach(open=>{
     open.addEventListener('click', async ()=>{
@@ -227,6 +240,22 @@ export function wireEntryRows(containerSel, date){
       showDay(day);
       activateTab('today');
       openEditSheet(entry);
+    });
+  });
+  $(containerSel).querySelectorAll('.food-item[data-id], .food-add').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const index = btn.dataset.index == null ? null : Number(btn.dataset.index);
+      openItemSheet({ date: date || btn.closest('.entry-item').dataset.date, id: btn.dataset.id, index, name: btn.dataset.name });
+    });
+  });
+  $(containerSel).querySelectorAll('.food-retry').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      btn.disabled = true; btn.textContent = 'Retrying…';
+      const day = date || btn.closest('.entry-item').dataset.date;
+      const entries = await emptyOnError(data().listDay(day));
+      const entry = entries.find(en=>en.id===btn.dataset.id);
+      if(entry) await splitEntry(day, entry);
+      renderToday();
     });
   });
   $(containerSel).querySelectorAll('.x').forEach(x=>{
@@ -307,7 +336,28 @@ function entryBody(e){
   }
   return '';
 }
-export function entryRowHtml(e, date){
+function itemHtml(e, item, index, editable){
+  const amount = itemAmount(item);
+  const tags = (item.tags||[]).map(tag=>`<span class="pill trigger">${escapeHtml(triggerLabel(tag))}</span>`).join('');
+  const inner = `<span class="row"><span class="name">${escapeHtml(item.name)}</span>${amount ? `<span class="amount">${escapeHtml(amount)}</span>` : ''}</span>${tags ? `<span class="pill-row">${tags}</span>` : ''}`;
+  return editable
+    ? `<button type="button" class="food-item" data-id="${escapeHtml(e.id)}" data-index="${index}" data-name="${escapeHtml(item.name)}" aria-label="Edit ${escapeHtml(item.name)}">${inner}</button>`
+    : `<div class="food-item">${inner}</div>`;
+}
+// Items, tags and the sorting status of a food entry. An old entry with no
+// status and no items has nothing to add: it is just its text.
+function foodDetailHtml(e, editable){
+  const stored = Array.isArray(e.items) ? e.items : [];
+  const items = stored.map((item, index)=> ({ item, index })).filter(({item})=> item && item.removed !== true);
+  const parts = items.map(({item, index})=> itemHtml(e, item, index, editable));
+  if(e.split_status==='pending') parts.unshift('<div class="food-note" role="status">Sorting this…</div>');
+  if(e.split_status==='failed'){
+    parts.unshift(`<div class="food-note failed">Couldn't sort this yet${editable ? `<button type="button" class="btn ghost food-retry" data-id="${escapeHtml(e.id)}">Retry</button>` : ''}</div>`);
+  }
+  if(editable) parts.push(`<button type="button" class="btn ghost food-add" data-id="${escapeHtml(e.id)}">Add an item</button>`);
+  return parts.length ? `<div class="food-detail">${parts.join('')}</div>` : '';
+}
+export function entryRowHtml(e, date, { editableItems = false } = {}){
   return `<div class="entry-item" data-id="${e.id}" ${date?`data-date="${date}"`:''}>
     <button type="button" class="entry-open">
       <span class="top">
@@ -318,6 +368,7 @@ export function entryRowHtml(e, date){
       <span class="sr-only">Edit</span>
     </button>
     <button type="button" class="x" data-id="${e.id}" aria-label="Delete ${escapeHtml(tagLabel(e.type))} entry">${xIcon()}</button>
+    ${e.type==='food' ? foodDetailHtml(e, editableItems) : ''}
   </div>`;
 }
 

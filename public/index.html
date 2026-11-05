@@ -124,6 +124,7 @@
     <div class="card">
       <h2 id="loggedHeading">Logged today</h2>
       <div id="todayList"></div>
+      <div id="foodTotals" class="food-totals" hidden></div>
     </div>
   </div>
 
@@ -381,6 +382,34 @@
       </div>
 
       <button type="submit" class="btn" id="sheetSaveBtn">Save</button>
+  </form>
+</dialog>
+
+<!-- FOOD ITEM SHEET: edit, add or delete one item of a food entry -->
+<dialog id="itemSheet" class="sheet" aria-labelledby="itemTitle">
+  <div class="sheet-head">
+    <h2 id="itemTitle">Edit item</h2>
+    <button type="button" class="sheet-close" id="itemClose" aria-label="Close"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><use href="#icon-x"></use></svg></button>
+  </div>
+  <form id="itemForm" novalidate>
+    <label for="itemName">Name</label>
+    <input type="text" id="itemName" maxlength="100">
+    <label>Mostly</label>
+    <div class="chip-row" id="itemMacroRow">
+      <button type="button" class="chip" data-val="protein">Protein</button>
+      <button type="button" class="chip" data-val="carbs">Carbs</button>
+      <button type="button" class="chip" data-val="fat">Fat</button>
+    </div>
+    <div class="item-grams">
+      <div><label for="itemProtein">Protein (g)</label><input type="number" id="itemProtein" min="0" max="1000" step="1" inputmode="decimal"></div>
+      <div><label for="itemCarbs">Carbs (g)</label><input type="number" id="itemCarbs" min="0" max="1000" step="1" inputmode="decimal"></div>
+      <div><label for="itemFat">Fat (g)</label><input type="number" id="itemFat" min="0" max="1000" step="1" inputmode="decimal"></div>
+    </div>
+    <label>Possible triggers</label>
+    <div class="chip-row" id="itemTagsRow"><button type="button" class="chip" data-val="caffeine">Caffeine</button><button type="button" class="chip" data-val="alcohol">Alcohol</button><button type="button" class="chip" data-val="aged_cheese">Aged cheese</button><button type="button" class="chip" data-val="processed_meat">Processed meat</button><button type="button" class="chip" data-val="chocolate">Chocolate</button><button type="button" class="chip" data-val="msg">MSG</button><button type="button" class="chip" data-val="artificial_sweetener">Artificial sweetener</button></div>
+    <div class="warn-box" id="itemError" role="alert" hidden></div>
+    <button type="submit" class="btn" id="itemSaveBtn">Save</button>
+    <button type="button" class="btn ghost item-delete" id="itemDeleteBtn">Delete item</button>
   </form>
 </dialog>
 

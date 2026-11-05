@@ -3,7 +3,7 @@
 import { data, emptyOnError } from './data.js';
 import { localDate, nowTime, shortDate } from './dates.js';
 import { closedHeadacheTimes } from './headache.js';
-import { splitEntry } from './food.js';
+import { changeEntryItems, splitEntry } from './food.js';
 import { $, $$, escapeHtml, xIcon, singleSelect, multiSelect, getSingle, getMulti, setChip, setOn } from './ui.js';
 
 const SHEET_TITLES = {food:'Food', headache:'Headache', prodrome:'Early signs', meds:'Meds', sleep:'Sleep', workout:'Exercise', period:'Period', hydration:'Water', note:'Note'};
@@ -461,6 +461,73 @@ function fillFieldsFromExtraction(type, d){
   }
 }
 
+// ---------- Food item sheet: edit, add or delete one item ----------
+let itemTarget = null;      // { date, id, index, name } of the item being edited; index null when adding
+let itemSaving = false;
+let itemDeleteArmed = false;
+
+function showItemError(message){ $('#itemError').textContent = message; $('#itemError').hidden = !message; }
+function armDelete(on){
+  itemDeleteArmed = on;
+  $('#itemDeleteBtn').textContent = on ? 'Tap again to delete' : 'Delete item';
+}
+const gramsOf = sel => { const n = parseFloat($(sel).value); return Number.isFinite(n) ? Math.round(Math.min(Math.max(n, 0), 1000)) : 0; };
+
+// Opens the item sheet. With no index it adds a new item.
+export async function openItemSheet({ date, id, index = null, name = null }){
+  const adding = index == null;
+  let item = { name:'', main_macro:null, food_type:'other', protein_g:0, carbs_g:0, fat_g:0, tags:[] };
+  if(!adding){
+    const entries = await emptyOnError(data().listDay(date));
+    const found = (entries.find(e=>e.id===id)?.items || []);
+    const at = found[index] && found[index].name===name ? index : found.findIndex(i=>i && i.name===name);
+    if(at < 0) return;
+    item = found[at]; index = at;
+  }
+  itemTarget = { date, id, index, name };
+  $('#itemTitle').textContent = adding ? 'Add an item' : 'Edit item';
+  $('#itemName').value = item.name;
+  $('#itemProtein').value = item.protein_g || '';
+  $('#itemCarbs').value = item.carbs_g || '';
+  $('#itemFat').value = item.fat_g || '';
+  $$('#itemMacroRow .chip').forEach(c=> setOn(c, c.dataset.val===item.main_macro));
+  $$('#itemTagsRow .chip').forEach(c=> setOn(c, (item.tags||[]).includes(c.dataset.val)));
+  $('#itemDeleteBtn').hidden = adding;
+  armDelete(false);
+  showItemError('');
+  $('#itemSheet').dataset.foodType = item.food_type || 'other';
+  if(!$('#itemSheet').open) $('#itemSheet').showModal();
+}
+
+async function runItemChange(buildChange){
+  if(itemSaving || !itemTarget) return;
+  itemSaving = true;
+  showItemError('');
+  try{
+    const ok = await changeEntryItems(itemTarget.date, itemTarget.id, buildChange(itemTarget));
+    if(!ok){ showItemError('That entry changed. Close this and try again.'); return; }
+    $('#itemSheet').close();
+    onEntrySaved({ type:'food' });
+  }catch(error){
+    console.error(error);
+    showItemError(`Not saved: ${failureMessage(error)}`);
+  }finally{
+    itemSaving = false;
+  }
+}
+function saveItem(){
+  const name = $('#itemName').value.trim();
+  if(!name){ showItemError('Give the item a name.'); return; }
+  const grams = { protein_g: gramsOf('#itemProtein'), carbs_g: gramsOf('#itemCarbs'), fat_g: gramsOf('#itemFat') };
+  let macro = getSingle('#itemMacroRow');
+  if(!macro){
+    const top = Math.max(grams.protein_g, grams.carbs_g, grams.fat_g);
+    macro = top===0 || top===grams.protein_g ? 'protein' : top===grams.carbs_g ? 'carbs' : 'fat';
+  }
+  const item = { name, main_macro: macro, food_type: $('#itemSheet').dataset.foodType || 'other', ...grams, tags: getMulti('#itemTagsRow') };
+  runItemChange(t=> ({ item, index: t.index, name: t.name }));
+}
+
 export function initForms(callbacks){
   ({ onEntrySaved, onMedSaved } = callbacks);
 
@@ -502,6 +569,14 @@ export function initForms(callbacks){
     saveSheet();
   });
   $('#sheetClose').addEventListener('click', closeSheet);
+  singleSelect($('#itemMacroRow')); multiSelect($('#itemTagsRow'));
+  $$('#itemMacroRow .chip, #itemTagsRow .chip').forEach(c=> setOn(c, c.classList.contains('on')));
+  $('#itemForm').addEventListener('submit', (ev)=>{ ev.preventDefault(); saveItem(); });
+  $('#itemClose').addEventListener('click', ()=> $('#itemSheet').close());
+  $('#itemDeleteBtn').addEventListener('click', ()=>{
+    if(!itemDeleteArmed){ armDelete(true); return; }
+    runItemChange(t=> ({ item: null, index: t.index, name: t.name }));
+  });
   $('#sheet').addEventListener('cancel', (ev)=>{ if(saving) ev.preventDefault(); });
   $('#screenshotFile').addEventListener('change', (e)=>{
     const file = e.target.files[0];
