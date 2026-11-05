@@ -1,5 +1,6 @@
 // Sign-in, sign-out and the required password change. The Supabase client is
 // passed in for its auth calls; settings go through data() like everything else.
+// The client is null when its script did not load: sign-in is off, the demo is not.
 import { data, setBackend } from './data.js';
 import { createDemoBackend } from './demo.js';
 import { $ } from './ui.js';
@@ -130,6 +131,12 @@ export function initAuth(client, onEnter){
   async function signOut(){ await client.auth.signOut(); location.reload(); }
   $('#signOutBtn').addEventListener('click', signOut);
   $('#passwordSignOutBtn').addEventListener('click', signOut);
+  if(!client){
+    $('#authSignInBtn').disabled = true;
+    $('#authStatus').textContent = 'Sign-in could not load. Check your connection or any content blocker, then reload. The demo still works.';
+    showOnly('auth');
+    return;
+  }
   client.auth.onAuthStateChange((event, session)=>{
     if(demoActive) return;
     if(!session){ gateRun++; gatedUserId = null; unrecordedPassword = null; showOnly('auth'); return; }

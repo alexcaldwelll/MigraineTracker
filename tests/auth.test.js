@@ -253,3 +253,17 @@ test("the next person is not trusted either when no sign-out event came first", 
   assert.equal(backend.saved.length, 0);
   assert.equal(entered.length, 0);
 });
+
+test("with no Supabase library, sign-in says so and the demo still opens", async (t) => {
+  const $ = fakePage();
+  t.after(() => { delete globalThis.document; });
+  globalThis.document.body = { classList: { add() {} } };
+  const entered = [];
+  initAuth(null, () => entered.push(true));
+  assert.equal($("#authScreen").style.display, "block");
+  assert.match($("#authStatus").textContent, /could not load/i);
+  assert.equal($("#authSignInBtn").disabled, true);
+  $("#demoBtn").click();
+  assert.equal(entered.length, 1);
+  assert.equal($("#app").style.display, "block");
+});

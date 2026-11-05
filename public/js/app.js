@@ -11,8 +11,9 @@ import { $, $$, activateTab } from './ui.js';
 const SUPABASE_URL = 'https://piiahxbeqsrzagjximoh.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpaWFoeGJlcXNyemFnanhpbW9oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM1OTg1NzMsImV4cCI6MjA5OTE3NDU3M30.cWRlOx3XfE1ImM84vCqglnql1NuS0OvVcao-Ulhqg1s';
 
-const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-setBackend(createSupabaseBackend(client));
+// Missing if the CDN script was blocked or failed its integrity check.
+const client = window.supabase?.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) ?? null;
+if(client) setBackend(createSupabaseBackend(client));
 
 let appInitialized = false;
 function initApp(){

@@ -84,6 +84,11 @@ test("no markup, static or generated, carries an inline event handler", () => {
   }
 });
 
+test("app.js starts without the Supabase library, so the demo survives a blocked CDN", () => {
+  assert.match(sources["app.js"], /window\.supabase\?\.createClient/);
+  assert.match(sources["app.js"], /if\(client\) setBackend\(createSupabaseBackend\(client\)\)/);
+});
+
 test("only data.js and auth.js receive the Supabase client, and only app.js creates it", () => {
   for (const [file, source] of Object.entries(sources)) {
     if (file !== "app.js") assert.equal(source.includes("createClient"), false, file);
