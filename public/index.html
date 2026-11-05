@@ -52,7 +52,7 @@
   .card h2{font-size:11.5px;text-transform:uppercase;letter-spacing:0.09em;color:var(--accent-dark);font-weight:700;margin:0 0 14px;}
   label{display:block;font-size:13px;color:var(--muted);margin-bottom:5px;margin-top:14px;font-weight:500;}
   label:first-of-type{margin-top:0;}
-  input[type=text],input[type=time],input[type=number],input[type=email],input[type=date],textarea{width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:var(--r-ctrl);font-size:15px;background:var(--field);color:var(--ink);font-family:inherit;transition:border-color 0.15s var(--ease),box-shadow 0.15s var(--ease);}
+  input[type=text],input[type=time],input[type=number],input[type=email],input[type=password],input[type=date],textarea{width:100%;padding:10px 11px;border:1px solid var(--line-strong);border-radius:var(--r-ctrl);font-size:15px;background:var(--field);color:var(--ink);font-family:inherit;transition:border-color 0.15s var(--ease),box-shadow 0.15s var(--ease);}
   input::placeholder,textarea::placeholder{color:#9c9789;}
   input:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-tint);}
   textarea{resize:vertical;min-height:56px;line-height:1.5;}
@@ -138,7 +138,11 @@
   #authScreen h1{margin-bottom:6px;font-size:28px;}
   #authScreen .sub{margin-bottom:24px;}
   #authScreen input{margin-bottom:10px;text-align:center;}
-  #authStatus{font-size:13px;color:var(--muted);margin-top:12px;line-height:1.5;}
+  #passwordScreen{max-width:400px;margin:64px auto;padding:0 20px;text-align:center;}
+  #passwordScreen h1{margin-bottom:6px;font-size:28px;}
+  #passwordScreen .sub{margin-bottom:24px;}
+  #passwordScreen input{margin-bottom:10px;text-align:center;}
+  #authStatus,#passwordStatus{font-size:13px;color:var(--muted);margin-top:12px;line-height:1.5;}
 
   .ai-output{font-size:14px; line-height:1.65; white-space:pre-wrap;color:var(--ink);}
   #medsModal{backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);}
@@ -190,12 +194,27 @@
   <circle cx="108" cy="32" r="1.7" fill="#4a8ba8" opacity="0.5"/>
 </svg>
   <h1>Migraine & Trigger Log</h1>
-  <p class="sub" id="authModeSub">Sign in to your account.</p>
+  <p class="sub" id="authModeSub">Sign in to your account. Accounts are invite-only. Forgot your password? Ask the person who invited you.</p>
   <input type="email" id="authEmail" placeholder="you@example.com">
   <input type="password" id="authPassword" placeholder="Password">
   <button class="btn" id="authSignInBtn">Sign in</button>
-  <button class="btn ghost" id="authSignUpBtn" style="width:100%; text-align:center; margin-top:8px;">First time here? Create an account</button>
   <div id="authStatus"></div>
+</div>
+
+<div id="passwordScreen" style="display:none;">
+  <h1>Migraine & Trigger Log</h1>
+  <p class="sub" id="passwordSub"></p>
+  <div id="passwordForm">
+    <input type="password" id="newPassword" placeholder="New password (10+ characters)" autocomplete="new-password">
+    <input type="password" id="confirmPassword" placeholder="Confirm new password" autocomplete="new-password">
+    <button class="btn" id="savePasswordBtn">Save password</button>
+    <button class="btn ghost" id="cancelPasswordBtn" style="width:100%; text-align:center; margin-top:8px; display:none;">Cancel</button>
+  </div>
+  <div id="gateRetry" style="display:none;">
+    <button class="btn" id="gateRetryBtn">Try again</button>
+  </div>
+  <button class="btn ghost" id="passwordSignOutBtn" style="width:100%; text-align:center; margin-top:8px;">Sign out</button>
+  <div id="passwordStatus"></div>
 </div>
 
 <div id="app" style="display:none;">
@@ -204,6 +223,7 @@
     <h1>Migraine & Trigger Log</h1>
     <div class="header-actions">
       <button class="btn ghost" id="settingsBtn"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-pills"></use></svg><span class="btn-label">Meds list</span></button>
+      <button class="btn ghost" id="changePasswordBtn"><span class="btn-label">Change password</span></button>
       <button class="btn ghost" id="signOutBtn"><span class="btn-label">Sign out</span></button>
     </div>
   </div>
@@ -484,29 +504,104 @@ $('#authSignInBtn').addEventListener('click', async ()=>{
   const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
   $('#authStatus').textContent = error ? ('Error: ' + error.message) : '';
 });
-$('#authSignUpBtn').addEventListener('click', async ()=>{
-  const email = $('#authEmail').value.trim();
-  const password = $('#authPassword').value;
-  if(!email || !password){ $('#authStatus').textContent = 'Enter both email and password.'; return; }
-  if(password.length < 6){ $('#authStatus').textContent = 'Password must be at least 6 characters.'; return; }
-  $('#authStatus').textContent = 'Creating account...';
-  const { data, error } = await supabaseClient.auth.signUp({ email, password });
-  if(error){ $('#authStatus').textContent = 'Error: ' + error.message; return; }
-  if(data.session){
-    $('#authStatus').textContent = ''; // signed in immediately
-  } else {
-    $('#authStatus').textContent = 'Account created. Check your email to confirm, then sign in above.';
+const MIN_PASSWORD_LENGTH = 10;
+let passwordMode = 'required'; // 'required' (first sign-in) or 'change' (from the header)
+let gatedUserId = null;        // user already sent through the gate; ignore repeat sign-in events
+let gateRun = 0;               // guards against overlapping gate checks
+
+function showOnly(which){
+  $('#authScreen').style.display = which==='auth' ? 'block' : 'none';
+  $('#passwordScreen').style.display = which==='password' ? 'block' : 'none';
+  $('#app').style.display = which==='app' ? 'block' : 'none';
+}
+function openPasswordScreen(mode){
+  passwordMode = mode;
+  $('#newPassword').value = ''; $('#confirmPassword').value = '';
+  $('#passwordStatus').textContent = '';
+  $('#passwordForm').style.display = 'block';
+  $('#gateRetry').style.display = 'none';
+  $('#cancelPasswordBtn').style.display = mode==='change' ? 'block' : 'none';
+  $('#passwordSignOutBtn').style.display = mode==='change' ? 'none' : 'block';
+  $('#passwordSub').textContent = mode==='change'
+    ? 'Choose a new password.'
+    : 'Welcome! Choose your own password to continue. It must be at least ' + MIN_PASSWORD_LENGTH + ' characters.';
+  showOnly('password');
+}
+// Decide whether a signed-in person may enter the app. On any failure they stay out.
+async function gateSession(){
+  const run = ++gateRun;
+  showOnly('password');
+  $('#passwordForm').style.display = 'none';
+  $('#gateRetry').style.display = 'none';
+  $('#passwordSignOutBtn').style.display = 'block';
+  $('#passwordSub').textContent = 'Checking your account...';
+  $('#passwordStatus').textContent = '';
+  const { data, error } = await supabaseClient.from('user_settings').select('password_set_at').maybeSingle();
+  if(run !== gateRun) return;
+  if(error){
+    console.error(error);
+    $('#passwordSub').textContent = 'We could not check your account.';
+    $('#passwordStatus').textContent = 'Error: ' + error.message + ' Try again, or sign out.';
+    $('#gateRetry').style.display = 'block';
+    return;
+  }
+  if(!data || !data.password_set_at){ openPasswordScreen('required'); return; }
+  showOnly('app');
+  initApp();
+}
+$('#gateRetryBtn').addEventListener('click', gateSession);
+$('#savePasswordBtn').addEventListener('click', async ()=>{
+  const pw = $('#newPassword').value, confirmPw = $('#confirmPassword').value;
+  const status = $('#passwordStatus');
+  if(pw.length < MIN_PASSWORD_LENGTH){ status.textContent = 'Password must be at least ' + MIN_PASSWORD_LENGTH + ' characters.'; return; }
+  if(pw !== confirmPw){ status.textContent = 'The two passwords do not match.'; return; }
+  const btn = $('#savePasswordBtn');
+  btn.disabled = true; status.textContent = 'Saving...';
+  try{
+    const { error } = await supabaseClient.auth.updateUser({ password: pw });
+    if(error){ status.textContent = 'Error: ' + error.message; return; }
+    const { error: upsertError } = await supabaseClient.from('user_settings')
+      .upsert({ password_set_at: new Date().toISOString() });
+    if(upsertError){
+      console.error(upsertError);
+      status.textContent = 'Your password was changed, but we could not record it: ' + upsertError.message + ' Press Save password again to retry.';
+      return;
+    }
+    if(passwordMode === 'change'){
+      showOnly('app');
+      showPasswordChangedNote();
+    } else {
+      showOnly('app');
+      initApp();
+    }
+  }catch(e){
+    console.error(e);
+    status.textContent = 'Error: ' + (e.message || e);
+  }finally{
+    btn.disabled = false;
   }
 });
-$('#signOutBtn').addEventListener('click', async ()=>{ await supabaseClient.auth.signOut(); location.reload(); });
+function showPasswordChangedNote(){
+  const note = document.createElement('div');
+  note.setAttribute('role', 'status');
+  note.textContent = 'Password changed.';
+  note.style.cssText = 'position:fixed; left:50%; bottom:24px; transform:translateX(-50%); background:var(--ink); color:var(--paper); padding:10px 16px; border-radius:8px; font-size:14px; z-index:200;';
+  document.body.appendChild(note);
+  setTimeout(()=> note.remove(), 4000);
+}
+$('#changePasswordBtn').addEventListener('click', ()=> openPasswordScreen('change'));
+$('#cancelPasswordBtn').addEventListener('click', ()=> showOnly('app'));
+async function signOut(){ await supabaseClient.auth.signOut(); location.reload(); }
+$('#signOutBtn').addEventListener('click', signOut);
+$('#passwordSignOutBtn').addEventListener('click', signOut);
 supabaseClient.auth.onAuthStateChange((event, session)=>{
-  if(session){
-    $('#authScreen').style.display='none';
-    $('#app').style.display='block';
-    initApp();
-  } else {
-    $('#authScreen').style.display='block';
-    $('#app').style.display='none';
+  if(!session){ gateRun++; gatedUserId = null; showOnly('auth'); return; }
+  // Token refreshes and updateUser fire this too; only a new sign-in needs the gate.
+  if(event === 'INITIAL_SESSION' || event === 'SIGNED_IN'){
+    if(gatedUserId === session.user.id) return;
+    gatedUserId = session.user.id;
+    // Defer: calling Supabase inside this callback can deadlock the client.
+    setTimeout(gateSession, 0);
   }
 });
 let appInitialized = false;
