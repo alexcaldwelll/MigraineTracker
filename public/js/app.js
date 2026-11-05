@@ -1,7 +1,7 @@
 // Entry point: builds the Supabase backend, wires every screen, starts auth.
 import { initAuth } from './auth.js';
 import { createSupabaseBackend, data, setBackend } from './data.js';
-import { canSendToAi, retryPendingSplits } from './food.js';
+import { backfillFood, canSendToAi, retryPendingSplits } from './food.js';
 import { initForms } from './forms.js';
 import { renderHistory, initHistory } from './history.js';
 import { renderAnalysis, initInsights } from './insights.js';
@@ -24,11 +24,16 @@ function initApp(){
   retryPending();
 }
 
-// Food saved while the AI was down or the notice was unread is sorted now.
+// Food saved while the AI was down or the notice was unread is sorted now,
+// then a batch of old entries. Runs in the background; nothing waits on it.
 async function retryPending(){
   try{
     const days = await data().listAll();
-    if(await retryPendingSplits(days, new Date()) > 0) renderToday();
+    let changed = await retryPendingSplits(days, new Date()) > 0;
+    // Old one-line entries: one small batch per app open, after the retries.
+    // Re-read so entries the retries just wrote are not picked again.
+    if(await backfillFood(await data().listAll()) > 0) changed = true;
+    if(changed) renderToday();
   }catch(error){
     console.error(error);
   }

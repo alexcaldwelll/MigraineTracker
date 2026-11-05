@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { setBackend } from "../public/js/data.js";
-import { canSendToAi, dayTotals, formatAmount, mergeItems, retryPendingSplits, splitEntry, triggerTags, visibleItems, changeEntryItems } from "../public/js/food.js";
+import { backfillFood, pickBackfillBatch, canSendToAi, dayTotals, formatAmount, mergeItems, retryPendingSplits, splitEntry, triggerTags, visibleItems, changeEntryItems } from "../public/js/food.js";
 import { FOOD_SCHEMA, validateItems } from "../netlify/functions/lib/food.js";
 
 const item = (over = {}) => ({
@@ -238,4 +238,64 @@ test("retryPendingSplits skips failed and old entries and does nothing without t
   assert.equal(await retryPendingSplits(days, NOW), 1);
   setBackend({ ...b, getSettings: async () => ({ ai_notice_seen_at: null }) });
   assert.equal(await retryPendingSplits(days, NOW), 0);
+});
+
+// ---- backfill of old entries ----
+const old = (id, extra = {}) => ({ id, type: "food", time: "08:00", text: "t" + id, ...extra });
+const oldDays = (byDate) => Object.entries(byDate).map(([date, entries]) => ({ date, entries }));
+
+test("pickBackfillBatch takes newest unsplit entries, skips split, pending, failed and edited, max 10", () => {
+  const days = oldDays({
+    "2026-11-01": [old("a")],
+    "2026-11-03": [old("b", { time: "07:00" }), old("c", { time: "19:00" }), old("p", { split_status: "pending" }), old("f", { split_status: "failed" }), old("d", { split_status: "done", items: [item()] }), old("e", { items: [item({ edited: true })] }), { id: "n", type: "note", text: "x" }],
+  });
+  const batch = pickBackfillBatch(days);
+  assert.deepEqual(batch.map((e) => e.id), ["c", "b", "a"]);
+  assert.equal(batch[0].date, "2026-11-03");
+  const many = oldDays({ "2026-10-01": Array.from({ length: 15 }, (_, i) => old("m" + i)) });
+  assert.equal(pickBackfillBatch(many).length, 10);
+  assert.equal(pickBackfillBatch(many, 3).length, 3);
+});
+
+test("backfill splits quietly: no pending write, uses backfill_food, keeps bracketed text", async () => {
+  const text = "eggs, toast (420 cal, 30g protein, 40g carbs, 12g fat)";
+  const row = old("r1", { text });
+  const b = fakeBackend({ settings: OK, rows: [row], ai: async () => ({ items: [item()] }) });
+  const n = await backfillFood([{ date: "2026-11-01", entries: [row] }]);
+  assert.equal(n, 1);
+  assert.deepEqual(b.aiCalls, [["backfill_food", { text }]]);
+  assert.equal(b.updates.length, 1);
+  assert.equal(b.updates[0].entry.split_status, "done");
+  assert.equal(b.updates[0].entry.text, text);
+  assert.equal("date" in b.updates[0].entry, false);
+});
+
+test("backfill stops quietly on 429 and writes nothing", async () => {
+  const rows = [old("a"), old("b"), old("c")];
+  const b = fakeBackend({ settings: OK, rows, ai: async () => { throw Object.assign(new Error("limit"), { status: 429 }); } });
+  const n = await backfillFood([{ date: "2026-11-01", entries: rows }]);
+  assert.equal(n, 0);
+  assert.equal(b.aiCalls.length, 1);
+  assert.equal(b.updates.length, 0);
+});
+
+test("backfill leaves an entry alone on other failures and carries on", async () => {
+  const rows = [old("a", { time: "09:00" }), old("b", { time: "08:00" })];
+  let calls = 0;
+  const b = fakeBackend({ settings: OK, rows, ai: async () => { if (calls++ === 0) throw new Error("down"); return { items: [item()] }; } });
+  assert.equal(await backfillFood([{ date: "2026-11-01", entries: rows }]), 1);
+  assert.equal(b.updates.length, 1);
+  assert.equal(b.updates[0].id, "b");
+});
+
+test("backfill does nothing without the notice, and runs one request at a time", async () => {
+  const rows = [old("a"), old("b"), old("c")];
+  const b = fakeBackend({ settings: { ai_notice_seen_at: null }, rows, ai: async () => ({ items: [] }) });
+  assert.equal(await backfillFood([{ date: "2026-11-01", entries: rows }]), 0);
+  assert.equal(b.aiCalls.length, 0);
+  let running = 0, peak = 0;
+  const b2 = fakeBackend({ settings: OK, rows, ai: async () => { running++; peak = Math.max(peak, running); await new Promise((r) => setImmediate(r)); running--; return { items: [] }; } });
+  assert.equal(await backfillFood([{ date: "2026-11-01", entries: rows }]), 3);
+  assert.equal(peak, 1);
+  assert.equal(b2.aiCalls.length, 3);
 });

@@ -56,6 +56,20 @@ export function createHandler({ getUser, consumeQuota, handlers }) {
 }
 
 export function createActions({ callClaude, loadEntries }) {
+  // 8000 tokens: a 2,000-character entry can hold dozens of foods at about
+  // 70 tokens each, and thinking counts toward max_tokens too.
+  const splitFood = async ({ text }) => {
+    const result = await callClaude({
+      model: MODELS.haiku,
+      effort: "low",
+      maxTokens: 8000,
+      system: SPLIT_FOOD_SYSTEM,
+      content: text,
+      schema: FOOD_SCHEMA,
+    });
+    return { items: validateItems(result?.items) };
+  };
+
   return {
     analyze: async (_payload, { token }) =>
       callClaude({
@@ -76,19 +90,9 @@ export function createActions({ callClaude, loadEntries }) {
         schema: SCREENSHOTS[type].schema,
       }),
 
-    // 8000 tokens: a 2,000-character entry can hold dozens of foods at about
-    // 70 tokens each, and thinking counts toward max_tokens too.
-    split_food: async ({ text }) => {
-      const result = await callClaude({
-        model: MODELS.haiku,
-        effort: "low",
-        maxTokens: 8000,
-        system: SPLIT_FOOD_SYSTEM,
-        content: text,
-        schema: FOOD_SCHEMA,
-      });
-      return { items: validateItems(result?.items) };
-    },
+    // Old entries use the same call, with their own daily quota.
+    split_food: splitFood,
+    backfill_food: splitFood,
   };
 }
 

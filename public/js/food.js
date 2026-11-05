@@ -100,29 +100,75 @@ export async function changeEntryItems(date, id, change){
 // The row's data never gets id or date written into it. The AI call can be
 // slow, so the final write starts from the entry as it is then: if the text
 // changed or the entry is gone, nothing is written.
-export async function splitEntry(date, entry){
+// options.action 'backfill_food' is the quiet path for old entries: nothing is
+// written before the call, and nothing on failure, so the entry stays as it was.
+// Returns 'done', 'rate_limited' (HTTP 429), or 'skipped'/'failed'.
+export async function splitEntry(date, entry, { action = 'split_food' } = {}){
+  const backfill = action === 'backfill_food';
   try{
     const { id, date: _date, ...clean } = entry;
-    if(!id) return;
-    if(clean.split_status !== 'pending'){
+    if(!id) return 'skipped';
+    if(!backfill && clean.split_status !== 'pending'){
       await data().update(id, date, { ...clean, split_status: 'pending' });
     }
     const settings = await data().getSettings();
-    if(!canSendToAi(settings)) return;   // stays pending until the notice is accepted
-    let incoming = null;
+    if(!canSendToAi(settings)) return 'skipped';   // stays pending until the notice is accepted
+    let incoming = null, limited = false;
     try{
-      const result = await data().ai('split_food', { text: clean.text });
+      const result = await data().ai(action, { text: clean.text });
       incoming = Array.isArray(result && result.items) ? result.items : [];
     }catch(error){
       console.error(error);
+      limited = Boolean(error && error.status === 429);
     }
+    if(backfill && !incoming) return limited ? 'rate_limited' : 'failed';
     const row = await currentEntry(date, id);
-    if(!row || row.text !== clean.text) return;
+    if(!row || row.text !== clean.text) return 'skipped';
     await data().update(id, date, incoming
       ? { ...row, split_status: 'done', items: mergeItems(row.items, incoming) }
       : { ...row, split_status: 'failed' });
+    return incoming ? 'done' : 'failed';
   }catch(error){
     console.error(error);
+    return 'failed';
+  }
+}
+
+export const BACKFILL_SIZE = 10;
+
+// Old food entries (no split_status, no items), newest first, at most `size`.
+// `days` is listAll's [{date, entries}]; each returned entry carries its date.
+// pending and failed entries belong to retryPendingSplits and Retry. An entry
+// with any items (edited ones included) is not unsplit, so it is left alone.
+export function pickBackfillBatch(days, size = BACKFILL_SIZE){
+  const found = [];
+  for(const day of days || []){
+    for(const e of (day && day.entries) || []){
+      const unsplit = !Array.isArray(e.items) || e.items.length === 0;
+      if(e && e.type === 'food' && !e.split_status && unsplit && typeof e.text === 'string' && e.text.trim()){
+        found.push({ ...e, date: day.date });
+      }
+    }
+  }
+  found.sort((a, b)=> a.date !== b.date ? (a.date < b.date ? 1 : -1) : String(b.time || '').localeCompare(String(a.time || '')));
+  return found.slice(0, size);
+}
+
+// One batch per app open, one request at a time. Stops quietly on a 429.
+// Returns how many entries were split.
+export async function backfillFood(days, size = BACKFILL_SIZE){
+  try{
+    if(!canSendToAi(await data().getSettings())) return 0;
+    let done = 0;
+    for(const entry of pickBackfillBatch(days, size)){
+      const result = await splitEntry(entry.date, entry, { action: 'backfill_food' });
+      if(result === 'done') done++;
+      if(result === 'rate_limited') break;
+    }
+    return done;
+  }catch(error){
+    console.error(error);
+    return 0;
   }
 }
 

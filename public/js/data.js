@@ -123,7 +123,11 @@ export function createSupabaseBackend(client){
         response = await send(data.session.access_token);
       }
       const body = await response.json().catch(()=> null);
-      if(!response.ok) throw new Error((body && body.error) || 'The AI service is unavailable. Try again later.');
+      if(!response.ok){
+        const error = new Error((body && body.error) || 'The AI service is unavailable. Try again later.');
+        error.status = response.status;
+        throw error;
+      }
       return body;
     },
   };

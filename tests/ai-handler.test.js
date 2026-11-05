@@ -277,8 +277,8 @@ function actionFakes() {
   };
 }
 
-test("only analyze, read_screenshot and split_food are registered", () => {
-  assert.deepEqual(Object.keys(actionFakes().actions).sort(), ["analyze", "read_screenshot", "split_food"]);
+test("analyze, backfill_food, read_screenshot and split_food are registered", () => {
+  assert.deepEqual(Object.keys(actionFakes().actions).sort(), ["analyze", "backfill_food", "read_screenshot", "split_food"]);
 });
 
 test("analyze loads entries with the user's token and returns { text }", async () => {
@@ -455,4 +455,19 @@ test("split_food uses haiku at low effort with the food schema and validates the
   assert.equal(calls[0].content, "tea");
   assert.ok(calls[0].schema);
   assert.deepEqual(result.items[0].tags, ["caffeine"]);
+});
+
+test("backfill_food matches split_food and an unknown action is refused before quota", async () => {
+  const calls = [];
+  const actions = createActions({
+    callClaude: async (req) => { calls.push(req); return { items: [] }; },
+    loadEntries: async () => [],
+  });
+  assert.deepEqual(await actions.backfill_food({ text: "tea" }), { items: [] });
+  await actions.split_food({ text: "tea" });
+  assert.deepEqual(calls[0], calls[1]);
+  assert.match(calls[0].system, /bracketed totals/);
+  const { handler, calls: c } = setup({ handlers: {} });
+  assert.equal((await handler(request({ action: "made_up", payload: {} }))).status, 400);
+  assert.deepEqual(c.consumeQuota, []);
 });
