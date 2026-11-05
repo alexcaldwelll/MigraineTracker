@@ -7,6 +7,7 @@ const MIN_PASSWORD_LENGTH = 10;
 let passwordMode = 'required'; // 'required' (first sign-in) or 'change' (from the header)
 let gatedUserId = null;        // user already sent through the gate; ignore repeat sign-in events
 let gateRun = 0;               // guards against overlapping gate checks
+let unrecordedPassword = null; // accepted by updateUser, but password_set_at is not saved yet
 let enterApp = ()=>{};         // starts the app once someone has passed the gate
 
 function showOnly(which){
@@ -81,8 +82,14 @@ export function initAuth(client, onEnter){
     const btn = $('#savePasswordBtn');
     btn.disabled = true; status.textContent = 'Saving...';
     try{
-      const { error } = await client.auth.updateUser({ password: pw });
-      if(error){ status.textContent = 'Error: ' + error.message; return; }
+      // A retry of the same password only needs the record: Supabase rejects a
+      // repeat of the current password. Never treat that rejection as success,
+      // or re-entering a temporary password would pass the required change.
+      if(pw !== unrecordedPassword){
+        const { error } = await client.auth.updateUser({ password: pw });
+        if(error){ status.textContent = 'Error: ' + error.message; return; }
+        unrecordedPassword = pw;
+      }
       try{
         await data().saveSettings({ password_set_at: new Date().toISOString() });
       }catch(saveError){
@@ -90,6 +97,7 @@ export function initAuth(client, onEnter){
         status.textContent = 'Your password was changed, but we could not record it: ' + saveError.message + ' Press Save password again to retry.';
         return;
       }
+      unrecordedPassword = null;
       if(passwordMode === 'change'){
         showOnly('app');
         showPasswordChangedNote();
@@ -110,11 +118,12 @@ export function initAuth(client, onEnter){
   $('#signOutBtn').addEventListener('click', signOut);
   $('#passwordSignOutBtn').addEventListener('click', signOut);
   client.auth.onAuthStateChange((event, session)=>{
-    if(!session){ gateRun++; gatedUserId = null; showOnly('auth'); return; }
+    if(!session){ gateRun++; gatedUserId = null; unrecordedPassword = null; showOnly('auth'); return; }
     // Token refreshes and updateUser fire this too; only a new sign-in needs the gate.
     if(event === 'INITIAL_SESSION' || event === 'SIGNED_IN'){
       if(gatedUserId === session.user.id) return;
       gatedUserId = session.user.id;
+      unrecordedPassword = null;
       // Defer: calling Supabase inside this callback can deadlock the client.
       setTimeout(gateSession, 0);
     }

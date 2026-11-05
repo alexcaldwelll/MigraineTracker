@@ -141,18 +141,115 @@ test("saving a new password records it through saveSettings, then enters", async
   assert.equal(entered.length, 1);
 });
 
-test("a password that cannot be recorded keeps the person out and says so", async (t) => {
-  const { $, emit, entered } = start(
-    t,
-    { getSettings: async () => null, saveSettings: async () => { throw new Error("database down."); } },
-    { updateUser: async () => ({ error: null }) },
-  );
+// Like Supabase, rejects a new password identical to the current one.
+function fakeAccount(current) {
+  const account = {
+    updates: 0,
+    async updateUser({ password }) {
+      account.updates += 1;
+      if (password === current) return { error: { message: "same_password" } };
+      current = password;
+      return { error: null };
+    },
+  };
+  return account;
+}
+
+// saveSettings fails `failures` times, then succeeds.
+function flakySettings(failures) {
+  const saved = [];
+  return {
+    saved,
+    getSettings: async () => null,
+    async saveSettings(patch) {
+      if (failures-- > 0) throw new Error("database down.");
+      saved.push(patch);
+    },
+  };
+}
+
+async function pressSave($, password) {
+  $("#newPassword").value = password;
+  $("#confirmPassword").value = password;
+  await $("#savePasswordBtn").click();
+}
+
+async function startAtPasswordScreen(t, backend, account) {
+  const page = start(t, backend, { updateUser: account.updateUser });
+  page.emit("SIGNED_IN", newSession());
+  await tick();
+  await tick();
+  return page;
+}
+
+test("a password that cannot be recorded keeps the person out, and pressing Save again records it", async (t) => {
+  const backend = flakySettings(1);
+  const account = fakeAccount("temporary pass");
+  const { $, entered } = await startAtPasswordScreen(t, backend, account);
+
+  await pressSave($, "long enough now");
+  assert.equal(entered.length, 0);
+  assert.match($("#passwordStatus").textContent, /could not record it/);
+
+  await pressSave($, "long enough now");
+  assert.equal(account.updates, 1);
+  assert.equal(backend.saved.length, 1);
+  assert.deepEqual(Object.keys(backend.saved[0]), ["password_set_at"]);
+  assert.equal(entered.length, 1);
+});
+
+test("re-entering the temporary password is refused and records nothing", async (t) => {
+  const backend = flakySettings(0);
+  const account = fakeAccount("temporary pass");
+  const { $, entered } = await startAtPasswordScreen(t, backend, account);
+
+  await pressSave($, "temporary pass");
+  assert.equal(backend.saved.length, 0);
+  assert.equal(entered.length, 0);
+  assert.match($("#passwordStatus").textContent, /same_password/);
+});
+
+test("a different password on the retry goes through updateUser", async (t) => {
+  const backend = flakySettings(1);
+  const account = fakeAccount("temporary pass");
+  const { $, entered } = await startAtPasswordScreen(t, backend, account);
+
+  await pressSave($, "long enough now");
+  await pressSave($, "another long one");
+  assert.equal(account.updates, 2);
+  assert.equal(backend.saved.length, 1);
+  assert.equal(entered.length, 1);
+});
+
+test("a sign-out forgets the unrecorded password, so the next person cannot skip updateUser", async (t) => {
+  const backend = flakySettings(1);
+  const account = fakeAccount("temporary pass");
+  const { $, emit, entered } = await startAtPasswordScreen(t, backend, account);
+
+  await pressSave($, "long enough now");
+  emit("SIGNED_OUT", null);
   emit("SIGNED_IN", newSession());
   await tick();
   await tick();
-  $("#newPassword").value = "long enough now";
-  $("#confirmPassword").value = "long enough now";
-  await $("#savePasswordBtn").click();
+
+  await pressSave($, "long enough now");
+  assert.equal(account.updates, 2);
+  assert.equal(backend.saved.length, 0);
   assert.equal(entered.length, 0);
-  assert.match($("#passwordStatus").textContent, /could not record it/);
+});
+
+test("the next person is not trusted either when no sign-out event came first", async (t) => {
+  const backend = flakySettings(1);
+  const account = fakeAccount("temporary pass");
+  const { $, emit, entered } = await startAtPasswordScreen(t, backend, account);
+
+  await pressSave($, "long enough now");
+  emit("SIGNED_IN", newSession());
+  await tick();
+  await tick();
+
+  await pressSave($, "long enough now");
+  assert.equal(account.updates, 2);
+  assert.equal(backend.saved.length, 0);
+  assert.equal(entered.length, 0);
 });
