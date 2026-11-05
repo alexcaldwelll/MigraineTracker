@@ -2,13 +2,9 @@
 // into items. DOM-free, so it imports in Node.
 import { data } from './data.js';
 import { localDate, shiftDate } from './dates.js';
+import { TAG_LABELS, triggerLabel, visibleItems } from './food-items.js';
 
-// An item the person deleted is kept as {edited: true, removed: true}. It is
-// hidden everywhere (visibleItems), and because edited items always survive a
-// merge and block a same-named incoming item, a re-split cannot bring it back.
-export function visibleItems(items){
-  return (Array.isArray(items) ? items : []).filter(item=> item && item.removed !== true);
-}
+export { TAG_LABELS, triggerLabel, visibleItems };
 
 // Edited items always survive. Incoming items replace the rest, except an
 // incoming item that has the same name as an edited one.
@@ -22,12 +18,6 @@ export function mergeItems(existing, incoming){
 export function canSendToAi(settings){
   return Boolean(settings && settings.ai_notice_seen_at);
 }
-
-export const TAG_LABELS = {
-  caffeine:'Caffeine', alcohol:'Alcohol', aged_cheese:'Aged cheese', processed_meat:'Processed meat',
-  chocolate:'Chocolate', msg:'MSG', artificial_sweetener:'Artificial sweetener',
-};
-export const triggerLabel = tag => TAG_LABELS[tag] || String(tag);
 
 const MACRO_KEY = { protein: 'protein_g', carbs: 'carbs_g', fat: 'fat_g' };
 const num = v => (typeof v === 'number' && Number.isFinite(v) ? v : 0);

@@ -2,30 +2,7 @@
 import { data, emptyOnError } from './data.js';
 import { $, escapeHtml } from './ui.js';
 import { daysWithHeadacheDates, headacheDaySet } from './headache.js';
-
-function findCycleDays(days){
-  // Returns sorted list of period start dates (first day with any 'period' entry after a gap of 20+ days from the previous one)
-  const periodDates = days.filter(d=> d.entries.some(e=>e.type==='period')).map(d=>d.date).sort();
-  const starts = [];
-  let last = null;
-  periodDates.forEach(dateStr=>{
-    const d = new Date(dateStr+'T00:00:00');
-    if(!last || (d - last)/86400000 > 20){ starts.push(d); }
-    last = d;
-  });
-  return starts;
-}
-function cycleDayFor(dateStr, periodStarts){
-  const d = new Date(dateStr+'T00:00:00');
-  let best = null;
-  periodStarts.forEach(start=>{
-    const diff = Math.round((d - start)/86400000);
-    if(diff >= -7 && diff <= 35){
-      if(best===null || Math.abs(diff) < Math.abs(best)) best = diff;
-    }
-  });
-  return best;
-}
+import { headacheDaysByCycleDay } from './patterns.js';
 
 export async function renderAnalysis(){
   const days = await emptyOnError(data().listAll());
@@ -67,18 +44,10 @@ export async function renderAnalysis(){
   $('#medChart').innerHTML = freqChart(withH, d=>d.meds, 'var(--tag-food)');
 
   // Cycle chart
-  const periodStarts = findCycleDays(days);
+  const { periodStarts, byCycleDay } = headacheDaysByCycleDay(days);
   if(periodStarts.length===0){
     $('#cycleChart').innerHTML = '<div class="empty">Log period days to see this — need at least one logged period start.</div>';
   } else {
-    const byCycleDay = {};
-    dayRollups.forEach(d=>{
-      if(!d.hasHeadache) return;
-      const cd = cycleDayFor(d.date, periodStarts);
-      if(cd===null) return;
-      const key = cd<0 ? String(cd) : '+'+cd;
-      byCycleDay[key] = (byCycleDay[key]||0)+1;
-    });
     const relevant = Object.entries(byCycleDay).filter(([k])=>{ const v=parseInt(k); return v>=-5 && v<=7; }).sort((a,b)=>parseInt(a[0])-parseInt(b[0]));
     if(relevant.length===0){
       $('#cycleChart').innerHTML = '<div class="empty">No headache days logged near a period start yet.</div>';
