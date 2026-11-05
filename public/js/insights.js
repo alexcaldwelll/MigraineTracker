@@ -6,7 +6,7 @@ import { foodNames } from './food-items.js';
 import { $, escapeHtml } from './ui.js';
 import { daysWithHeadacheDates, headacheDaySet } from './headache.js';
 import { buildStats, headacheDaysByCycleDay, ruleSuggestion } from './patterns.js';
-import { activeTrial, dueTrial, reviewTrial, startTrial, trialDay, trialLabel } from './trials.js';
+import { activeTrial, reviewTrial, startTrial, stopGate, trialDay, trialLabel } from './trials.js';
 
 let analyzing = false;
 
@@ -282,7 +282,7 @@ function startControl(make, onStart){
 }
 
 // Reads the trials fresh, so a trial started on another device is seen.
-async function startFrom(result){
+export async function startFrom(result){
   const today = localDate();
   const fresh = await data().listTrials();
   const trial = startTrial(result.try_next, today, fresh);
@@ -290,6 +290,13 @@ async function startFrom(result){
   const saved = await data().saveTrial(trial);
   trials = [saved, ...fresh];
   renderTrialPanel();
+}
+
+// Stopped trials keep their dates and have no result. Rejects if the save fails.
+export async function stopTrial(trial){
+  const saved = await data().saveTrial({ ...trial, status: 'stopped', result: null });
+  trials = swap(trials, saved);
+  return saved;
 }
 
 const perWeekText = value => value == null ? 'not enough logged' : `${value} a week`;
@@ -318,12 +325,11 @@ function activeCard(trial, today){
   const stop = h('button', 'btn small ghost', 'Stop this trial');
   stop.type = 'button';
   const box = errorBox();
-  let armed = false;
+  const gate = stopGate();
   const doStop = async ()=>{
     stop.disabled = true; box.hidden = true;
     try{
-      const saved = await data().saveTrial({ ...trial, status: 'stopped' });
-      trials = swap(trials, saved);
+      await stopTrial(trial);
       renderTrialPanel();
     }catch(error){
       console.error(error);
@@ -335,13 +341,13 @@ function activeCard(trial, today){
   cancel.type = 'button';
   cancel.hidden = true;
   stop.addEventListener('click', ()=>{
-    if(!armed){
-      armed = true; stop.textContent = 'Tap again to stop'; cancel.hidden = false;
+    if(gate.press() === 'arm'){
+      stop.textContent = 'Tap again to stop'; cancel.hidden = false;
       return;
     }
     doStop();
   });
-  cancel.addEventListener('click', ()=>{ armed = false; stop.textContent = 'Stop this trial'; cancel.hidden = true; });
+  cancel.addEventListener('click', ()=>{ gate.cancel(); stop.textContent = 'Stop this trial'; cancel.hidden = true; });
   card.append(stop, cancel, box);
   return card;
 }
@@ -362,6 +368,7 @@ function pastList(past){
 }
 
 function renderTrialPanel(){
+  if(typeof document === 'undefined') return;
   const panel = $('#trialPanel');
   if(!panel) return;
   const today = localDate();

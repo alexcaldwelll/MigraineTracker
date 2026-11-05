@@ -90,3 +90,14 @@ function summarize({ before, during, length, beforeDays, duringDays }){
   }
   return `${text} ${CAVEAT}`;
 }
+
+// Stopping takes two taps. press() says what the tap does: 'arm' on the first,
+// 'stop' on the second. cancel() disarms it.
+export function stopGate(){
+  let armed = false;
+  return {
+    press(){ if(armed) return 'stop'; armed = true; return 'arm'; },
+    cancel(){ armed = false; },
+    get armed(){ return armed; },
+  };
+}
