@@ -52,7 +52,7 @@ const LOOKBACK_MS = 48 * 3600000;
 //   moderate:    3+ lookbacks, and within a Benjamini-Hochberg cutoff at 0.05.
 //   early guess: everything else.
 // Both of the first two also need 10+ control windows. On simulated pure noise,
-// moderate or strong fires in about 1% of logs (see tests/patterns.test.js).
+// moderate or strong fires in 2% of logs or fewer (see tests/patterns.test.js).
 const CONFIDENCE = ['early guess', 'moderate', 'strong'];
 const ALPHA = 0.05;
 const MIN_CONTROLS = 10;

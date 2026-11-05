@@ -256,6 +256,16 @@ test("a log with no headache-free span stays an early guess and asks for logging
   assert.doesNotMatch(try_next.title, /coffee/i);
 });
 
+test("with full logging but no headache-free stretch, the suggestion is more logging, not a habit", () => {
+  const log = {};
+  for (let i = 0; i < 6; i++) log[i * 2] = [sleep(8), food("08:00", item("coffee")), headache("10:00")];
+  for (let i = 0; i < 6; i++) log[i * 2 + 1] = [sleep(8), food("12:00", item("coffee"))];
+  const { try_next } = ruleSuggestion(buildStats(daysOf(log), { now: nowAfter(11) }), []);
+  assert.equal(try_next.factor_key, null);
+  assert.match(try_next.title, /keep logging/i);
+  assert.match(try_next.why, /no headache-free/i);
+});
+
 test("cycle reports headache days by cycle day, and is null with no period data", () => {
   const period = () => ({ id: "p", type: "period", time: "08:00" });
   const stats = buildStats(daysOf({ 10: [period()], 8: [headache("10:00")], 11: [headache("10:00")], 60: [headache("10:00")] }), { now: nowAfter(70) });
