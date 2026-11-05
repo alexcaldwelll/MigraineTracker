@@ -3,3 +3,6 @@
 
 # Local Netlify folder
 .netlify
+
+# Brainstorming mockups
+.superpowers/
