@@ -9,7 +9,7 @@ import { settleTrials } from './insights.js';
 import { activeTrial, trialDay, trialLabel } from './trials.js';
 import { $, $$, escapeHtml, svgIcon, xIcon, activateTab, getSingle } from './ui.js';
 
-let onEntryDeleted = ()=>{};
+let onEntryChanged = ()=>{};       // History redraws when a row changes
 let renderCount = 0;               // only the newest render may draw, when days change quickly
 let allDays = [];                  // every day from listAll, so an open headache from an earlier day is found
 let needsReload = true;            // allDays may be behind the database
@@ -276,14 +276,14 @@ export function wireEntryRows(containerSel, date){
       const entries = await emptyOnError(data().listDay(day));
       const entry = entries.find(en=>en.id===btn.dataset.id);
       if(entry) await splitEntry(day, entry);
-      renderToday();
+      renderToday(); onEntryChanged();
     });
   });
   $(containerSel).querySelectorAll('.x').forEach(x=>{
     x.addEventListener('click', async ()=>{
       await deleteEntry(x.dataset.id);
       refreshHeadache();
-      renderToday(); onEntryDeleted();
+      renderToday(); onEntryChanged();
     });
   });
 }
@@ -373,7 +373,7 @@ function foodDetailHtml(e, editable){
   const parts = items.map(({item, index})=> itemHtml(e, item, index, editable));
   if(e.split_status==='pending') parts.unshift('<div class="food-note" role="status">Sorting this…</div>');
   if(e.split_status==='failed'){
-    parts.unshift(`<div class="food-note failed">Couldn't sort this yet${editable ? `<button type="button" class="btn ghost food-retry" data-id="${escapeHtml(e.id)}">Retry</button>` : ''}</div>`);
+    parts.unshift(`<div class="food-note failed">Couldn't sort this yet<button type="button" class="btn ghost food-retry" data-id="${escapeHtml(e.id)}">Retry</button></div>`);
   }
   if(editable) parts.push(`<button type="button" class="btn ghost food-add" data-id="${escapeHtml(e.id)}">Add an item</button>`);
   return parts.length ? `<div class="food-detail">${parts.join('')}</div>` : '';
@@ -399,7 +399,7 @@ function showDay(date){
 }
 
 export function initToday(callbacks){
-  ({ onEntryDeleted } = callbacks);
+  ({ onEntryChanged } = callbacks);
 
   $('#entryDate').value = localDate();
   $('#dayBack').addEventListener('click', ()=> showDay(shiftDate($('#entryDate').value, -1)));

@@ -79,7 +79,7 @@ initForms({
   onEntrySaved: (entry)=>{ if(entry && entry.type==='headache') refreshHeadache(); renderToday(); },
   onMedSaved: renderToday,
 });
-initToday({ onEntryDeleted: renderHistory });
+initToday({ onEntryChanged: renderHistory });
 initHistory();
 initInsights();
 initAuth(client, initApp);

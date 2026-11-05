@@ -126,16 +126,20 @@ export async function splitEntry(date, entry, { action = 'split_food' } = {}){
 
 export const BACKFILL_SIZE = 10;
 
-// Old food entries (no split_status, no items), newest first, at most `size`.
-// `days` is listAll's [{date, entries}]; each returned entry carries its date.
-// pending and failed entries belong to retryPendingSplits and Retry. An entry
-// with any items (edited ones included) is not unsplit, so it is left alone.
-export function pickBackfillBatch(days, size = BACKFILL_SIZE){
+// Old food entries (no split_status, no items), newest first, at most `size`, and
+// pending entries too old for retryPendingSplits, which would otherwise wait
+// forever and count for nothing. `days` is listAll's [{date, entries}]; each
+// returned entry carries its date. Newer pending entries belong to
+// retryPendingSplits, and failed ones to it and to Retry. An entry with no status
+// and any items (edited ones included) is not unsplit, so it is left alone.
+export function pickBackfillBatch(days, size = BACKFILL_SIZE, now = new Date()){
+  const oldestRetried = shiftDate(localDate(now), -RETRY_DAYS);
   const found = [];
   for(const day of days || []){
     for(const e of (day && day.entries) || []){
       const unsplit = !Array.isArray(e.items) || e.items.length === 0;
-      if(e && e.type === 'food' && !e.split_status && unsplit && typeof e.text === 'string' && e.text.trim()){
+      const waiting = e.split_status === 'pending' ? day.date < oldestRetried : !e.split_status && unsplit;
+      if(e && e.type === 'food' && waiting && typeof e.text === 'string' && e.text.trim()){
         found.push({ ...e, date: day.date });
       }
     }
@@ -146,11 +150,11 @@ export function pickBackfillBatch(days, size = BACKFILL_SIZE){
 
 // One batch per app open, one request at a time. Stops quietly on a 429.
 // Returns how many entries were split.
-export async function backfillFood(days, size = BACKFILL_SIZE){
+export async function backfillFood(days, size = BACKFILL_SIZE, now = new Date()){
   try{
     if(!canSendToAi(await data().getSettings())) return 0;
     let done = 0;
-    for(const entry of pickBackfillBatch(days, size)){
+    for(const entry of pickBackfillBatch(days, size, now)){
       const result = await splitEntry(entry.date, entry, { action: 'backfill_food' });
       if(result === 'done') done++;
       if(result === 'rate_limited') break;
@@ -165,8 +169,8 @@ export async function backfillFood(days, size = BACKFILL_SIZE){
 export const RETRY_DAYS = 7;
 export const RETRY_LIMIT = 5;
 
-// On app open: pending food entries from the last 7 days, newest first, at most
-// 5, one at a time. `days` is listAll's [{date, entries}]. Returns how many ran.
+// On app open: pending and failed food entries from the last 7 days, newest first,
+// at most 5, one at a time. `days` is listAll's [{date, entries}]. Returns how many ran.
 export async function retryPendingSplits(days, now = new Date()){
   try{
     if(!canSendToAi(await data().getSettings())) return 0;
@@ -174,8 +178,8 @@ export async function retryPendingSplits(days, now = new Date()){
     const todo = [];
     for(const day of [...(days || [])].sort((a,b)=> a.date < b.date ? 1 : -1)){
       if(day.date < oldest || day.date > today) continue;
-      const pending = day.entries.filter(e=> e.type === 'food' && e.split_status === 'pending');
-      for(const entry of pending.reverse()) todo.push({ date: day.date, entry });
+      const unsorted = day.entries.filter(e=> e.type === 'food' && ['pending', 'failed'].includes(e.split_status));
+      for(const entry of unsorted.reverse()) todo.push({ date: day.date, entry });
     }
     const batch = todo.slice(0, RETRY_LIMIT);
     for(const { date, entry } of batch) await splitEntry(date, entry);

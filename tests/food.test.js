@@ -230,14 +230,38 @@ test("retryPendingSplits does at most 5, one at a time, newest first", async () 
   assert.equal(peak, 1);
 });
 
-test("retryPendingSplits skips failed and old entries and does nothing without the notice", async () => {
+test("retryPendingSplits takes failed entries as well, skips old ones, and does nothing without the notice", async () => {
   const failed = { ...pend("f"), split_status: "failed" };
   const legacy = { id: "l", type: "food", time: "08:00", text: "old" };
-  const b = daysBackend({ "2026-11-05": [failed, legacy, pend("a")] });
-  const days = [{ date: "2026-11-05", entries: [failed, legacy, pend("a")] }];
-  assert.equal(await retryPendingSplits(days, NOW), 1);
+  const done = { ...pend("d"), split_status: "done" };
+  const b = daysBackend({ "2026-11-05": [failed, legacy, done, pend("a")] });
+  const days = [{ date: "2026-11-05", entries: [failed, legacy, done, pend("a")] }];
+  assert.equal(await retryPendingSplits(days, NOW), 2);
+  assert.deepEqual(b.aiCalls.map((c) => c[1].text).sort(), ["ta", "tf"]);
   setBackend({ ...b, getSettings: async () => ({ ai_notice_seen_at: null }) });
   assert.equal(await retryPendingSplits(days, NOW), 0);
+});
+
+test("a failed entry that sorts on retry stops being failed", async () => {
+  const failed = { ...pend("f"), split_status: "failed" };
+  const b = daysBackend({ "2026-11-05": [failed] });
+  await retryPendingSplits([{ date: "2026-11-05", entries: [failed] }], NOW);
+  assert.equal(b.calls.at(-1).status, "done");
+});
+
+test("failed and pending entries share the limit of 5 an open", async () => {
+  const entries = [];
+  for (let i = 0; i < 8; i++) entries.push({ ...pend("p" + i), split_status: i % 2 ? "failed" : "pending" });
+  const b = daysBackend({ "2026-11-05": entries });
+  assert.equal(await retryPendingSplits([{ date: "2026-11-05", entries }], NOW), 5);
+  assert.equal(b.aiCalls.length, 5);
+});
+
+test("a failed entry older than 7 days waits for its Retry button", async () => {
+  const entries = [{ ...pend("f"), split_status: "failed" }];
+  daysBackend({ "2026-10-28": entries });
+  assert.equal(await retryPendingSplits([{ date: "2026-10-28", entries }], NOW), 0);
+  assert.deepEqual(pickBackfillBatch([{ date: "2026-10-28", entries }], 10, NOW), []);
 });
 
 // ---- backfill of old entries ----
@@ -249,7 +273,7 @@ test("pickBackfillBatch takes newest unsplit entries, skips split, pending, fail
     "2026-11-01": [old("a")],
     "2026-11-03": [old("b", { time: "07:00" }), old("c", { time: "19:00" }), old("p", { split_status: "pending" }), old("f", { split_status: "failed" }), old("d", { split_status: "done", items: [item()] }), old("e", { items: [item({ edited: true })] }), { id: "n", type: "note", text: "x" }],
   });
-  const batch = pickBackfillBatch(days);
+  const batch = pickBackfillBatch(days, undefined, NOW);
   assert.deepEqual(batch.map((e) => e.id), ["c", "b", "a"]);
   assert.equal(batch[0].date, "2026-11-03");
   const many = oldDays({ "2026-10-01": Array.from({ length: 15 }, (_, i) => old("m" + i)) });
@@ -298,4 +322,30 @@ test("backfill does nothing without the notice, and runs one request at a time",
   assert.equal(await backfillFood([{ date: "2026-11-01", entries: rows }]), 3);
   assert.equal(peak, 1);
   assert.equal(b2.aiCalls.length, 3);
+});
+
+// ---- pending entries past the retry window ----
+test("backfill picks pending entries only once the retry pass has stopped covering them", () => {
+  const entries = (date) => ({ date, entries: [old(date, { split_status: "pending" })] });
+  const batch = pickBackfillBatch([entries("2026-10-29"), entries("2026-10-28"), entries("2026-11-05")], 10, NOW);
+  assert.deepEqual(batch.map((e) => e.date), ["2026-10-28"]);
+});
+
+test("an old pending entry with edited items is still picked, and the edit survives", async () => {
+  const edited = { name: "my toast", main_macro: "carbs", food_type: "grains", tags: [], edited: true };
+  const row = old("p", { split_status: "pending", items: [edited] });
+  const b = fakeBackend({ settings: OK, rows: [row], ai: async () => ({ items: [item()] }) });
+  assert.equal(await backfillFood([{ date: "2026-10-01", entries: [row] }], 10, NOW), 1);
+  assert.equal(b.aiCalls[0][0], "backfill_food");
+  assert.equal(b.updates.length, 1);
+  assert.equal(b.updates[0].entry.split_status, "done");
+  assert.deepEqual(b.updates[0].entry.items.map((i) => i.name), ["my toast", "cheddar"]);
+});
+
+test("backfill writes nothing when an old pending entry fails", async (t) => {
+  t.mock.method(console, "error", () => {});
+  const row = old("p", { split_status: "pending" });
+  const b = fakeBackend({ settings: OK, rows: [row], ai: async () => { throw new Error("down"); } });
+  assert.equal(await backfillFood([{ date: "2026-10-01", entries: [row] }], 10, NOW), 0);
+  assert.deepEqual(b.updates, []);
 });
