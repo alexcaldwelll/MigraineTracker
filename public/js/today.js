@@ -164,18 +164,31 @@ async function finishHeadache(endAt){
   await refreshHeadache();
   renderToday();
 }
+// The id of the open headache on screen, or null. A tap means what the button
+// said, so it is taken before the fresh read.
+const shownHeadache = ()=> findOpenHeadache(allDays)?.id ?? null;
+function changedElsewhere(shown){
+  if(shownHeadache() === shown) return false;
+  showHeadacheError('This changed on another device.');
+  renderToday();
+  return true;
+}
 function onHeadacheTap(){
   const now = new Date();  // the time of the tap, even if a retry saves it
+  const shown = shownHeadache();
   return runHeadache(async ()=>{
-    if(findOpenHeadache(allDays)) await finishHeadache(now);
+    if(changedElsewhere(shown)) return;
+    if(shown) await finishHeadache(now);
     else await beginHeadache(startHeadache(allDays, now));
   });
 }
 function onEndAtSaved(){
   const end = new Date($('#headacheEndAt').value);
+  const shown = shownHeadache();
   return runHeadache(async ()=>{
+    if(changedElsewhere(shown)) return;
     const open = findOpenHeadache(allDays);
-    if(!open) return;  // already ended elsewhere
+    if(!open) return;
     const start = new Date(open.start_at || `${open.date}T${open.time}:00`);
     if(Number.isNaN(end.getTime()) || end < start || end > new Date()){
       showHeadacheError('Pick a time between when the headache started and now.');

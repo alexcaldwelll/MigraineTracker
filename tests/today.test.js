@@ -145,13 +145,63 @@ test("ending a headache keeps details saved elsewhere since the last read", asyn
   assert.equal(backend.updated[0].entry.note, "behind the eye");
 });
 
-test("a headache opened elsewhere since the last read is ended, not doubled", async (t) => {
+const CHANGED = "This changed on another device.";
+
+test("a tap on I have a headache does not end one opened elsewhere", async (t) => {
   const { $, backend } = headachePage(t, []);
   await refreshHeadache();
+  assert.equal($("#headacheBtn").textContent, "I have a headache");
   backend.rows = [headacheRow()];
   await $("#headacheBtn").click();
   assert.deepEqual(backend.added, []);
-  assert.equal(backend.updated[0].id, "h1");
+  assert.deepEqual(backend.updated, []);
+  assert.equal($("#headacheBtn").textContent, "My headache ended");
+  assert.equal($("#headacheErrorText").textContent, CHANGED);
+  assert.equal($("#headacheError").hidden, false);
+  assert.equal($("#headacheRetryBtn").hidden, true);
+});
+
+test("a tap on My headache ended does not log a false one after it ended elsewhere", async (t) => {
+  const { $, backend } = headachePage(t, [headacheRow()]);
+  await refreshHeadache();
+  assert.equal($("#headacheBtn").textContent, "My headache ended");
+  backend.rows = [headacheRow({ open: false, duration: 2, end_at: "2026-11-02T00:00:00.000Z" })];
+  await $("#headacheBtn").click();
+  assert.deepEqual(backend.added, []);
+  assert.deepEqual(backend.updated, []);
+  assert.equal($("#headacheBtn").textContent, "I have a headache");
+  assert.equal($("#headacheErrorText").textContent, CHANGED);
+});
+
+test("a tap on My headache ended does not end a different one opened elsewhere", async (t) => {
+  const { $, backend } = headachePage(t, [headacheRow()]);
+  await refreshHeadache();
+  backend.rows = [headacheRow({ open: false }), headacheRow({ id: "h2", start_at: "2026-11-01T23:00:00.000Z" })];
+  await $("#headacheBtn").click();
+  assert.deepEqual(backend.updated, []);
+  assert.equal($("#headacheErrorText").textContent, CHANGED);
+});
+
+test("a tap with nothing changed still starts a headache", async (t) => {
+  const { $, backend } = headachePage(t, []);
+  await refreshHeadache();
+  await $("#headacheBtn").click();
+  assert.equal(backend.added.length, 1);
+  assert.equal(backend.added[0].open, true);
+  assert.equal($("#headacheError").hidden, true);
+});
+
+test("a change seen on the retry after a failed read stops there too", async (t) => {
+  t.mock.method(console, "error", () => {});
+  const { $, backend } = headachePage(t, [headacheRow()]);
+  await refreshHeadache();
+  backend.failReads = true;
+  await $("#headacheBtn").click();
+  backend.failReads = false;
+  backend.rows = [];
+  await $("#headacheRetryBtn").onclick();
+  assert.deepEqual(backend.added, []);
+  assert.equal($("#headacheErrorText").textContent, CHANGED);
 });
 
 test("a headache ended elsewhere is not ended twice over newer details", async (t) => {
@@ -161,6 +211,7 @@ test("a headache ended elsewhere is not ended twice over newer details", async (
   $("#headacheEndAt").value = "2026-11-02T03:00";
   await $("#headacheEndAtBtn").click();
   assert.deepEqual(backend.updated, []);
+  assert.equal($("#headacheErrorText").textContent, CHANGED);
 });
 
 test("when the fresh read fails nothing is written, and Retry is offered", async (t) => {
