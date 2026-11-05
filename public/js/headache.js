@@ -4,7 +4,8 @@
 // { date, entries }.
 import { localDate, shiftDate } from './dates.js';
 
-const HOUR = 3600000;
+const MINUTE = 60000;
+const HOUR = 60 * MINUTE;
 const STALE_AFTER = 24 * HOUR;
 
 export const isHeadacheEntry = entry => Boolean(entry) && entry.type === 'headache';
@@ -48,14 +49,17 @@ export function isStale(entry, now){
   return new Date(now) - startOf(entry) >= STALE_AFTER;
 }
 
-// Every local calendar date the headache touches. An open one, and an old one
-// with no end time, count only their start date.
+// Every calendar date the headache touches, from its stored date and time, so
+// the answer is the same in every process time zone. A closed one adds its
+// elapsed time to that wall-clock start. An open one, and an old one with no
+// start_at or end_at, count only their start date.
 export function headacheDates(entry){
-  const start = localDate(startOf(entry));
-  if(entry.open === true || !entry.end_at) return [entry.start_at ? start : entry.date];
-  const last = localDate(new Date(entry.end_at));
-  const dates = [start];
-  for(let d = start; d < last; ) dates.push(d = shiftDate(d, 1));
+  const dates = [entry.date];
+  if(entry.open === true || !entry.start_at || !entry.end_at) return dates;
+  const [hours, minutes] = (entry.time || '00:00').split(':').map(Number);
+  const elapsed = (new Date(entry.end_at) - new Date(entry.start_at)) / MINUTE;
+  const extraDays = Math.floor((hours * 60 + minutes + elapsed) / (24 * 60));
+  for(let i = 1; i <= extraDays; i++) dates.push(shiftDate(entry.date, i));
   return dates;
 }
 

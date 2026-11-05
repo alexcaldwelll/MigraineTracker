@@ -1,12 +1,20 @@
 // The pattern engine: what came before headaches, compared with headache-free
 // stretches, and a rule-based suggestion that always gives the person something
 // to do. Pure, so the browser and the Netlify function can both import it: no
-// DOM, no network, and no import of data.js or ui.js. All times are local.
+// DOM, no network, and no import of data.js or ui.js.
 //
-// Lookbacks. Each headache entry is one attack, so one attack across midnight
-// counts once. Its start is start_at, otherwise date plus time. A lookback is
-// the 48 hours before that start: anything logged at or after the start is out.
-// A blank time counts as 12:00, for attacks and exposures alike.
+// Time. Everything runs on stored wall-clock values, so results do not depend
+// on the process time zone: an attack starts at its `date` plus `time`, never at
+// start_at read through local getters. A blank or invalid time counts as 12:00,
+// for attacks and exposures alike. 48 hours means 48 hours on the wall clock.
+//
+// Lookbacks. Each headache entry is one attack (`attacks`), so one attack across
+// midnight counts once. A lookback is the 48 hours before an attack's start, and
+// anything logged at or after the start is out. Attacks starting under 48 hours
+// after a counted attack join it and add no lookback, so one meal cannot count
+// for several attacks, and every lookback is 48 hours long, like a control
+// window. `headacheTotal` is therefore counted lookbacks and can be below
+// `attacks`. Something logged between two clustered attacks is not counted.
 //
 // Control windows. Walking forward from the first logged date, two consecutive
 // calendar dates form a control window when:
@@ -16,57 +24,80 @@
 //   - both dates are over, so today never counts.
 // A window that qualifies uses up both dates, so windows never overlap. A date
 // that does not qualify moves the walk on by one. A control window can sit just
-// before a headache and so overlap a lookback. That shrinks gaps, which errs the
-// honest way, and keeping those windows matters for frequent headaches.
+// before a headache and so overlap a lookback, which can only shrink differences.
 //
-// A log with no such window. controlTotal is 0, no control count is invented,
-// and every factor is an early guess because nothing shows it is any rarer on
-// headache-free stretches. Daily coffee would otherwise look like a trigger.
+// Missing data. A window with nothing logged says nothing about a factor, and
+// counting it as "not seen" on the control side would inflate that factor. So a
+// control window counts toward food factors only if it has a split food entry,
+// and toward sleep factors only if it has sleep hours. `controlTotal` therefore
+// differs between food and sleep. Lookback denominators stay at every counted
+// lookback, so missing data there can only understate a factor. `gaps` reports
+// what is missing. A factor seen in no lookback is left out.
 //
-// Missing data. Denominators are always every lookback and every control window.
-// A window with no food or sleep logged counts as "not seen", so gaps can only
-// understate a factor, and `gaps` reports them. A factor seen in no lookback is
-// left out, since it can say nothing about headaches.
-import { localDate, shiftDate } from './dates.js';
+// A log with no usable control windows. controlTotal is 0, no control count is
+// invented, every factor is an early guess, and ruleSuggestion asks for more
+// logging rather than naming a food. Daily coffee would otherwise look like a
+// trigger.
+import { shiftDate } from './dates.js';
 import { TAG_LABELS, triggerLabel, visibleItems } from './food-items.js';
 import { headacheDaySet, isHeadacheEntry } from './headache.js';
 
-const HOUR = 3600000;
-const LOOKBACK_MS = 48 * HOUR;
-const BLANK_TIME = '12:00';
+const LOOKBACK_MS = 48 * 3600000;
 
-// Confidence thresholds, for samples that are usually under 20 attacks, where
-// one or two matches happen by chance. confidenceFor applies them.
-//   early guess: everything else, including anything seen once or twice.
-//   moderate:    seen in at least 3 lookbacks, and at least 40% of them.
-//   strong:      seen in at least 5 lookbacks, and at least 60% of them.
-// Against control windows, a gap under 15 points is no real difference, so the
-// result is an early guess. Strong also needs a gap of 30 points or more and at
-// least 10 control windows, since a handful of windows gives a coarse rate.
+// Confidence. Logs usually hold under 20 lookbacks and hundreds of foods, so the
+// best-looking factor is often luck. Each factor gets a one-sided Fisher exact
+// test of "more common in lookbacks than in control windows", corrected for the
+// number of factors tested:
+//   strong:      5+ lookbacks, and p below 0.05 / factors tested (Bonferroni).
+//   moderate:    3+ lookbacks, and within a Benjamini-Hochberg cutoff at 0.05.
+//   early guess: everything else.
+// Both of the first two also need 10+ control windows. On simulated pure noise,
+// moderate or strong fires in about 1% of logs (see tests/patterns.test.js).
 const CONFIDENCE = ['early guess', 'moderate', 'strong'];
-const MODERATE = { hits: 3, rate: 0.4 };
-const STRONG = { hits: 5, rate: 0.6 };
-const SOME_GAP = 0.15;
-const CLEAR_GAP = 0.30;
-const STRONG_MIN_CONTROLS = 10;
+const ALPHA = 0.05;
+const MIN_CONTROLS = 10;
+const MODERATE_HITS = 3;
+const STRONG_HITS = 5;
 
-const rate = (hits, total) => (total ? hits / total : 0);
-const gapFromControl = (hits, total, control) => rate(hits, total) - rate(control.hits, control.total);
+const logFactorials = [0];
+function logFactorial(n){
+  for(let i = logFactorials.length; i <= n; i++) logFactorials[i] = logFactorials[i-1] + Math.log(i);
+  return logFactorials[n];
+}
+const logChoose = (n, k) => logFactorial(n) - logFactorial(k) - logFactorial(n - k);
 
-// hits of total lookbacks. `control` is { hits, total } for the control windows.
-// Leave it out to judge the counts alone. gapFromControl is the only comparison
-// with the control rate, and confidence and suggestions both go through it.
-export function confidenceFor(hits, total, control){
-  const seen = rate(hits, total);
-  let level = 0;
-  if(hits >= MODERATE.hits && seen >= MODERATE.rate) level = 1;
-  if(hits >= STRONG.hits && seen >= STRONG.rate) level = 2;
-  if(control){
-    const gap = gapFromControl(hits, total, control);
-    if(!control.total || gap < SOME_GAP) level = 0;
-    else if(gap < CLEAR_GAP || control.total < STRONG_MIN_CONTROLS) level = Math.min(level, 1);
+// The one comparison with the control rate: the chance of `hits` or more of
+// `total` lookbacks if lookbacks and control windows do not differ.
+function pAgainstControl(hits, total, control){
+  const seen = hits + control.hits, windows = total + control.total;
+  let p = 0;
+  for(let x = hits; x <= Math.min(seen, total); x++){
+    if(seen - x > control.total) continue;
+    p += Math.exp(logChoose(total, x) + logChoose(control.total, seen - x) - logChoose(windows, seen));
   }
-  return CONFIDENCE[level];
+  return Math.min(p, 1);
+}
+
+const factorP = f => pAgainstControl(f.beforeHeadache, f.headacheTotal, { hits: f.controlHits, total: f.controlTotal });
+
+// The largest p that survives Benjamini-Hochberg, or -1 when none does.
+function benjaminiHochbergCutoff(ps){
+  const sorted = [...ps].sort((a, b)=> a - b);
+  for(let rank = sorted.length; rank > 0; rank--){
+    if(sorted[rank-1] <= rank / sorted.length * ALPHA) return sorted[rank-1];
+  }
+  return -1;
+}
+
+// hits of total lookbacks, against `control` = { hits, total }. With no control
+// counts nothing can be compared, so it is an early guess. `tested` is how many
+// factors were tested, and `cutoff` the Benjamini-Hochberg cutoff across them.
+export function confidenceFor(hits, total, control, { tested = 1, cutoff = ALPHA / tested } = {}){
+  if(!control || control.total < MIN_CONTROLS) return 'early guess';
+  const p = pAgainstControl(hits, total, control);
+  if(hits >= STRONG_HITS && p < ALPHA / tested) return 'strong';
+  if(hits >= MODERATE_HITS && p <= cutoff) return 'moderate';
+  return 'early guess';
 }
 
 const FOOD_TYPE_LABELS = {
@@ -80,15 +111,17 @@ const SLEEP_BANDS = [
 ];
 // A food item with one of these names would be a macro by another route.
 const MACRO_WORDS = new Set(['protein','proteins','carb','carbs','carbohydrate','carbohydrates','fat','fats']);
+// Common pain relievers, in case one lands in the food log without ever being
+// logged as a med. Logged med names and options.medNames are added to these.
+const COMMON_MEDS = ['advil','aleve','aspirin','acetaminophen','excedrin','ibuprofen','motrin','naproxen','paracetamol','sumatriptan','tylenol'];
 
-const atLocal = (date, time) => {
-  const hhmm = /^\d{2}:\d{2}/.test(String(time ?? '')) ? time.slice(0, 5) : BLANK_TIME;
-  return new Date(`${date}T${hhmm}:00`).getTime();
-};
-
-function attackStart(entry, date){
-  const stamped = entry.start_at ? new Date(entry.start_at).getTime() : NaN;
-  return Number.isNaN(stamped) ? atLocal(date, entry.time) : stamped;
+// Wall-clock milliseconds for a stored date and time. Only ever compared with
+// each other, so it is safe that the numbers read as UTC.
+function wallClock(date, time){
+  const [year, month, day] = date.split('-').map(Number);
+  const [, hh, mm] = String(time ?? '').match(/^(\d{1,2}):(\d{2})/) || [];
+  const valid = hh < 24 && mm < 60;
+  return Date.UTC(year, month - 1, day, valid ? Number(hh) : 12, valid ? Number(mm) : 0);
 }
 
 const hasHours = hours => hours != null && hours !== '' && Number(hours) > 0;
@@ -99,65 +132,88 @@ const isUnsplit = entry => entry.split_status === 'pending'
   || (entry.split_status !== 'done' && !(Array.isArray(entry.items) && entry.items.length));
 
 const capitalize = text => text.charAt(0).toUpperCase() + text.slice(1);
+const normalName = name => String(name ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
 
-// [key, label] for each food factor in a food entry. Waiting entries count for
-// nothing, like everywhere else food is totalled.
-function foodFactors(entry){
+// Macros, water and medicines are never food factors, so nothing downstream can
+// suggest skipping them.
+function isFoodFactor(name, meds){
+  if(!name || MACRO_WORDS.has(name) || /\bwater\b/.test(name)) return false;
+  return !meds.some(med=> ` ${name} `.includes(` ${med} `));
+}
+
+// Registers each food factor of an entry in `catalog` and returns the keys.
+// Waiting entries count for nothing, like everywhere else food is totalled.
+function foodKeys(entry, meds, catalog){
   if(entry.split_status === 'pending') return [];
-  const found = [];
+  const keys = [];
+  const note = (key, label, caffeine)=>{
+    keys.push(key);
+    const known = catalog.get(key);
+    catalog.set(key, { label, caffeine: caffeine || Boolean(known && known.caffeine) });
+  };
   for(const item of visibleItems(entry.items)){
-    const name = String(item.name ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
-    if(name && !MACRO_WORDS.has(name)) found.push([`food:${name}`, capitalize(name)]);
-    if(FOOD_TYPE_LABELS[item.food_type]) found.push([`type:${item.food_type}`, FOOD_TYPE_LABELS[item.food_type]]);
-    for(const tag of Array.isArray(item.tags) ? item.tags : []){
-      if(TAG_LABELS[tag]) found.push([`tag:${tag}`, triggerLabel(tag)]);
-    }
+    const name = normalName(item.name);
+    const tags = Array.isArray(item.tags) ? item.tags : [];
+    if(isFoodFactor(name, meds)) note(`food:${name}`, capitalize(name), tags.includes('caffeine'));
+    if(FOOD_TYPE_LABELS[item.food_type]) note(`type:${item.food_type}`, FOOD_TYPE_LABELS[item.food_type], false);
+    for(const tag of tags) if(TAG_LABELS[tag]) note(`tag:${tag}`, triggerLabel(tag), tag === 'caffeine');
   }
-  return found;
+  return keys;
 }
 
 // A nap joins the night, so one day has one sleep total and one band. It is
 // placed at the time of that day's first sleep entry.
-function sleepExposure(date, entries){
+function sleepExposure(date, entries, catalog){
   const nights = entries.filter(e=> e.type === 'sleep' && hasHours(e.hours));
   if(!nights.length) return null;
   const hours = nights.reduce((sum, e)=> sum + Number(e.hours), 0);
   const band = SLEEP_BANDS.find(b=> hours < b.below);
-  return { at: Math.min(...nights.map(e=> atLocal(date, e.time))), factors: [[band.key, band.label]] };
+  catalog.set(band.key, { label: band.label, caffeine: false });
+  return { at: Math.min(...nights.map(e=> wallClock(date, e.time))), keys: [band.key] };
 }
 
-// date -> [{ at, factors: [[key, label]] }]
-function exposuresByDate(days){
-  const byDate = new Map();
+// date -> [{ at, keys }], plus the dates with usable food and sleep data.
+function readLog(days, meds, catalog){
+  const byDate = new Map(), foodDates = new Set(), sleepDates = new Set();
   const add = (date, exposure)=>{
     if(!byDate.has(date)) byDate.set(date, []);
     byDate.get(date).push(exposure);
   };
   for(const { date, entries } of days){
     for(const entry of entries){
-      if(entry.type === 'food') add(date, { at: atLocal(date, entry.time), factors: foodFactors(entry) });
+      if(entry.type !== 'food') continue;
+      if(!isUnsplit(entry)) foodDates.add(date);
+      add(date, { at: wallClock(date, entry.time), keys: foodKeys(entry, meds, catalog) });
     }
-    const sleep = sleepExposure(date, entries);
-    if(sleep) add(date, sleep);
+    const sleep = sleepExposure(date, entries, catalog);
+    if(sleep){ add(date, sleep); sleepDates.add(date); }
   }
-  return byDate;
+  return { byDate, foodDates, sleepDates };
 }
 
-function lookbackKeys(start, exposures, labels){
+// Attacks starting under 48 hours after a counted attack join it.
+function countedAttacks(attacks){
+  const counted = [];
+  let last = -Infinity;
+  for(const attack of [...attacks].sort((a, b)=> a.start - b.start)){
+    if(attack.start - last < LOOKBACK_MS) continue;
+    counted.push(attack);
+    last = attack.start;
+  }
+  return counted;
+}
+
+function lookbackKeys({ date, start }, byDate){
   const keys = new Set();
-  const startDate = localDate(new Date(start));
-  // Three days back, not two, so a clock change cannot lose an hour of the 48.
-  for(let back = 0; back <= 3; back++){
-    for(const { at, factors } of exposures.get(shiftDate(startDate, -back)) || []){
-      if(at < start - LOOKBACK_MS || at >= start) continue;
-      for(const [key, label] of factors){ keys.add(key); labels.set(key, label); }
+  for(let back = 0; back <= 2; back++){
+    for(const { at, keys: found } of byDate.get(shiftDate(date, -back)) || []){
+      if(at >= start - LOOKBACK_MS && at < start) for(const key of found) keys.add(key);
     }
   }
   return keys;
 }
 
-function controlWindows(loggedDates, headacheDays, now){
-  const today = localDate(now);
+function controlWindows(loggedDates, headacheDays, today){
   const windows = [];
   let date = [...loggedDates].sort()[0];
   while(date){
@@ -174,14 +230,6 @@ function controlWindows(loggedDates, headacheDays, now){
   return windows;
 }
 
-function controlKeys(span, exposures){
-  const keys = new Set();
-  for(const date of span){
-    for(const { factors } of exposures.get(date) || []) for(const [key] of factors) keys.add(key);
-  }
-  return keys;
-}
-
 function tally(keySets){
   const counts = new Map();
   for(const keys of keySets) for(const key of keys) counts.set(key, (counts.get(key) || 0) + 1);
@@ -191,25 +239,31 @@ function tally(keySets){
 // Sleep first on a tie because it is the gentlest change, then the narrowest food.
 const KIND_ORDER = ['sleep', 'food', 'tag', 'type'];
 const kindOf = key => key.slice(0, key.indexOf(':'));
-const factorGap = f => gapFromControl(f.beforeHeadache, f.headacheTotal, { hits: f.controlHits, total: f.controlTotal });
 
 function byEvidence(a, b){
   return CONFIDENCE.indexOf(b.confidence) - CONFIDENCE.indexOf(a.confidence)
-    || factorGap(b) - factorGap(a)
+    || factorP(a) - factorP(b)
     || b.beforeHeadache - a.beforeHeadache
     || KIND_ORDER.indexOf(kindOf(a.key)) - KIND_ORDER.indexOf(kindOf(b.key))
     || a.key.localeCompare(b.key);
 }
 
-function buildFactors(lookbacks, controls, labels){
-  const before = tally(lookbacks), inControl = tally(controls);
-  const factors = [...before].map(([key, beforeHeadache])=>{
-    const controlHits = inControl.get(key) || 0;
-    return {
-      key, label: labels.get(key), beforeHeadache, headacheTotal: lookbacks.length, controlHits, controlTotal: controls.length,
-      confidence: confidenceFor(beforeHeadache, lookbacks.length, { hits: controlHits, total: controls.length }),
-    };
-  });
+function buildFactors(lookbacks, spans, { byDate, foodDates, sleepDates }, catalog){
+  const usable = dates => spans.filter(span=> span.some(date=> dates.has(date)));
+  const keysIn = span => span.flatMap(date=> (byDate.get(date) || []).flatMap(e=> e.keys));
+  // Food keys only appear on dates with split food, sleep keys on dates with
+  // hours, so counting every span's keys gives the hits for either family.
+  const inControl = tally(spans.map(span=> new Set(keysIn(span))));
+  const totals = { sleep: usable(sleepDates).length, food: usable(foodDates).length };
+  const factors = [...tally(lookbacks)].map(([key, beforeHeadache])=> ({
+    key, label: catalog.get(key).label, beforeHeadache, headacheTotal: lookbacks.length,
+    controlHits: inControl.get(key) || 0, controlTotal: kindOf(key) === 'sleep' ? totals.sleep : totals.food,
+  }));
+  const cutoff = benjaminiHochbergCutoff(factors.map(factorP));
+  for(const f of factors){
+    f.confidence = confidenceFor(f.beforeHeadache, f.headacheTotal, { hits: f.controlHits, total: f.controlTotal }, { tested: factors.length, cutoff });
+    if(catalog.get(f.key).caffeine) f.caffeine = true;
+  }
   return factors.sort(byEvidence);
 }
 
@@ -264,8 +318,8 @@ function cycleStats(days){
   };
 }
 
-function acuteDaysInLast30(days, now){
-  const today = localDate(now), oldest = shiftDate(today, -29);
+function acuteDaysInLast30(days, today){
+  const oldest = shiftDate(today, -29);
   return days.filter(d=> d.date >= oldest && d.date <= today
     && d.entries.some(e=> e.type === 'meds' && e.category === 'acute')).length;
 }
@@ -281,31 +335,38 @@ function logGaps(loggedDays){
 }
 
 // `days` is [{ date, entries }]. See the top of this file for the windows.
-export function buildStats(days, { now = new Date() } = {}){
+// `today` is the person's own date. Callers should pass it: the fallback is the
+// UTC date of `now`, which keeps results the same in every process time zone but
+// can be a day off near midnight. `medNames` adds to the logged med names.
+export function buildStats(days, { now = new Date(), today = now.toISOString().slice(0, 10), medNames = [] } = {}){
   const headacheDays = headacheDaySet(days);
   const logged = days.filter(d=> d.entries.length);
-  const exposures = exposuresByDate(days);
-  const labels = new Map();
-  const lookbacks = days.flatMap(({ date, entries })=> entries.filter(isHeadacheEntry)
-    .map(entry=> lookbackKeys(attackStart(entry, date), exposures, labels)));
-  const controls = controlWindows(new Set(logged.map(d=> d.date)), headacheDays, now)
-    .map(span=> controlKeys(span, exposures));
+  const loggedMeds = days.flatMap(d=> d.entries.filter(e=> e.type === 'meds').map(e=> e.name));
+  const meds = [...new Set([...COMMON_MEDS, ...loggedMeds, ...medNames].map(normalName))].filter(Boolean);
+  const catalog = new Map();
+  const log = readLog(days, meds, catalog);
+  const attacks = days.flatMap(({ date, entries })=> entries.filter(isHeadacheEntry)
+    .map(entry=> ({ date, start: wallClock(date, entry.time) })));
+  const lookbacks = countedAttacks(attacks).map(attack=> lookbackKeys(attack, log.byDate));
+  const spans = controlWindows(new Set(logged.map(d=> d.date)), headacheDays, today);
   return {
-    attacks: lookbacks.length,
+    attacks: attacks.length,
     headacheDays: headacheDays.size,
     loggedDays: logged.length,
-    factors: buildFactors(lookbacks, controls, labels),
+    factors: buildFactors(lookbacks, spans, log, catalog),
     cycle: cycleStats(days),
-    acuteMedDays30: acuteDaysInLast30(days, now),
+    acuteMedDays30: acuteDaysInLast30(days, today),
     gaps: logGaps(logged),
   };
 }
 
 // Food suggestions run 2 to 4 weeks: the wider the change, the longer it needs
-// to show, since it is harder to keep to and takes in more meals.
-const TRIAL_DAYS = { sleep: 14, food: 14, tag: 21, type: 28, habit: 14, logging: 14 };
+// to show, since it is harder to keep to and takes in more meals. Caffeine gets
+// 3 weeks whatever the factor, because the first week is spent easing down.
+const TRIAL_DAYS = { sleep: 14, food: 14, tag: 21, type: 28, habit: 14, logging: 14, caffeine: 21 };
 const forWeeks = days => `Do this for the next ${days / 7} weeks`;
 const MIN_HITS_TO_SUGGEST = 2;
+const MAX_P_TO_SUGGEST = 0.2;     // loose on purpose: an early guess is still worth a try
 const MIN_ATTACKS_FOR_HABIT = 3;
 const MAX_WATCHING = 3;
 const ACUTE_FLAG_DAYS = 8;        // the same line as the medication flag in insights.js
@@ -313,9 +374,9 @@ const CYCLE_NOTE_MIN_DAYS = 3;
 const CYCLE_NOTE_MIN_SHARE = 0.5;
 
 const SLEEP_TITLE = 'Aim for 7+ hours of sleep';
-// More sleep cannot answer 7+ hours, "other" names nothing, and giving up all
-// drinks is neither narrow nor safe. These stay in `factors` for Claude to read.
-const NOT_SUGGESTED = new Set(['sleep:7_plus', 'type:drinks', 'type:other']);
+// The only food groups narrow enough to try cutting. The rest go to the doctor.
+const SUGGESTIBLE_TYPES = new Set(['type:dairy', 'type:sweets_snacks']);
+const isBroadType = f => kindOf(f.key) === 'type' && !SUGGESTIBLE_TYPES.has(f.key);
 
 const HABITS = [
   { factor_key:'habit:steady_sleep', title:'Keep a steady sleep schedule' },
@@ -327,21 +388,31 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const inSentence = label => (/^[A-Z]+$/.test(label) ? label : label.toLowerCase());
 const sameTitle = title => String(title ?? '').trim().toLowerCase();
 
-function evidence(f){
-  const before = `${f.label} came before ${f.beforeHeadache} of ${f.headacheTotal} headaches`;
-  return f.controlTotal
-    ? `${before}, compared with ${f.controlHits} of ${f.controlTotal} headache-free stretches.`
-    : `${before}, with no headache-free stretches to compare with yet.`;
+function evidence(f, stats){
+  const headaches = f.headacheTotal === stats.attacks ? 'headaches' : 'headache spells';
+  return `${f.label} came before ${f.beforeHeadache} of ${f.headacheTotal} ${headaches}, compared with ${f.controlHits} of ${f.controlTotal} headache-free stretches.`;
 }
 
-function factorTrial(f){
-  const kind = kindOf(f.key), days = TRIAL_DAYS[kind];
-  const title = kind === 'sleep' ? SLEEP_TITLE : `Skip ${inSentence(f.label)} for ${days / 7} weeks`;
-  return { title, action: forWeeks(days), why: evidence(f), confidence: f.confidence, days, factor_key: f.key };
+function factorTrial(f, stats){
+  const why = evidence(f, stats);
+  if(kindOf(f.key) === 'sleep'){
+    return { title: SLEEP_TITLE, action: forWeeks(TRIAL_DAYS.sleep), why, confidence: f.confidence, days: TRIAL_DAYS.sleep, factor_key: f.key };
+  }
+  if(f.caffeine){
+    const days = TRIAL_DAYS.caffeine, weeks = days / 7;
+    return { title: `Ease off ${inSentence(f.label)} for ${weeks} weeks`, why, confidence: f.confidence, days, factor_key: f.key,
+      action: `Cut down gradually over a week or so, because stopping suddenly can trigger headaches. Then stay low for the rest of the ${weeks} weeks` };
+  }
+  const days = TRIAL_DAYS[kindOf(f.key)];
+  return { title: `Skip ${inSentence(f.label)} for ${days / 7} weeks`, action: forWeeks(days), why, confidence: f.confidence, days, factor_key: f.key };
 }
 
-const worthSuggesting = f => !NOT_SUGGESTED.has(f.key)
-  && f.beforeHeadache >= MIN_HITS_TO_SUGGEST && factorGap(f) >= SOME_GAP;
+// A signal at all: seen more than once, with windows to compare, and leaning
+// toward headaches. More sleep cannot answer 7+ hours.
+const hasSignal = f => f.key !== 'sleep:7_plus' && f.controlTotal > 0
+  && f.beforeHeadache >= MIN_HITS_TO_SUGGEST && factorP(f) <= MAX_P_TO_SUGGEST;
+
+const worthSuggesting = f => hasSignal(f) && !isBroadType(f);
 
 // True for a suggestion a completed trial already showed no improvement from.
 function notHelpedBefore(pastTrials){
@@ -360,7 +431,7 @@ function notHelpedBefore(pastTrials){
 // same change, so they are one suggestion.
 function factorTrials(stats, ruledOut){
   const seen = new Set();
-  return stats.factors.filter(worthSuggesting).map(factorTrial).filter(trial=>{
+  return stats.factors.filter(worthSuggesting).map(f=> factorTrial(f, stats)).filter(trial=>{
     if(ruledOut(trial) || seen.has(trial.title)) return false;
     seen.add(trial.title);
     return true;
@@ -392,6 +463,9 @@ function fallbackTrial(stats, ruledOut){
     return loggingTrial(`Log your ${what} every day`, `Most logged days have no ${what}, so it can't be compared with your headaches yet.`);
   }
   const headaches = plural(stats.attacks, 'headache');
+  if(stats.factors.every(f=> !f.controlTotal)){
+    return loggingTrial('Keep logging your sleep and food, on good days too', 'There are no headache-free stretches with sleep or food logged to compare with yet, so nothing can be singled out.');
+  }
   if(stats.attacks >= MIN_ATTACKS_FOR_HABIT){
     const habit = HABITS.find(h=> !ruledOut(h));
     if(habit){
@@ -423,8 +497,18 @@ const medicationNote = ({ acuteMedDays30: days }) => (days >= ACUTE_FLAG_DAYS
   ? `You logged acute medication on ${days} of the last 30 days. That is worth raising with your doctor.`
   : null);
 
+// A broad food group can be the top signal without being a safe thing to cut
+// alone. Noise should not reach the doctor, so an early guess stays out.
+function broadGroupQuestion(stats){
+  const top = stats.factors.find(hasSignal);
+  if(!top || !isBroadType(top) || top.confidence === 'early guess') return null;
+  return `${evidence(top, stats)} Is that worth looking into?`;
+}
+
 function doctorQuestions(stats, cycle, medication){
   const questions = [];
+  const broadGroup = broadGroupQuestion(stats);
+  if(broadGroup) questions.push(broadGroup);
   if(medication) questions.push(`Could using acute medication on ${stats.acuteMedDays30} of the last 30 days be adding to my headaches?`);
   if(cycle) questions.push('Could my headaches be linked to my menstrual cycle?');
   if(stats.attacks >= MIN_ATTACKS_FOR_HABIT) questions.push(`I logged ${stats.attacks} headaches on ${plural(stats.headacheDays, 'day')}. Is there anything else you would want me to track?`);

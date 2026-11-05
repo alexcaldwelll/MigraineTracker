@@ -64,6 +64,15 @@ test("a long closed headache gives every date it touches", () => {
   assert.deepEqual(headacheDates(e), ["2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05"]);
 });
 
+test("headache dates come from the stored date and time, not from start_at", () => {
+  const e = { type: "headache", date: "2026-03-10", time: "22:00", start_at: "2026-03-11T02:00:00.000Z", end_at: "2026-03-11T03:30:00.000Z" };
+  assert.deepEqual(headacheDates(e), ["2026-03-10"]);
+  assert.deepEqual(headacheDates({ ...e, end_at: "2026-03-11T04:00:00.000Z" }), ["2026-03-10", "2026-03-11"], "ending at midnight touches the next date");
+  assert.deepEqual(headacheDates({ ...e, end_at: "2026-03-12T04:30:00.000Z" }), ["2026-03-10", "2026-03-11", "2026-03-12"]);
+  assert.deepEqual(headacheDates({ ...e, end_at: "2026-03-11T01:00:00.000Z" }), ["2026-03-10"], "an end before the start stays on its date");
+  assert.deepEqual(headacheDates({ ...e, start_at: undefined }), ["2026-03-10"]);
+});
+
 test("an open headache gives only its start date", () => {
   assert.deepEqual(headacheDates(open), ["2026-11-02"]);
 });

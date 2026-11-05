@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { buildStats, confidenceFor, ruleSuggestion } from "../public/js/patterns.js";
 import { TAG_LABELS } from "../public/js/food-items.js";
 import { FOOD_TYPES, TRIGGER_TAGS } from "../netlify/functions/lib/food.js";
@@ -8,7 +9,7 @@ import { shiftDate } from "../public/js/dates.js";
 
 const BASE = "2026-01-01";
 const date = (n) => shiftDate(BASE, n);
-const nowAfter = (n) => new Date(`${date(n)}T12:00:00`);
+const nowAfter = (n) => new Date(`${date(n)}T12:00:00Z`);
 
 let nextId = 0;
 const item = (name, over = {}) => ({ name, main_macro: "fat", food_type: "other", protein_g: 1, carbs_g: 1, fat_g: 1, tags: [], ...over });
@@ -16,16 +17,17 @@ const food = (time, ...items) => ({ id: `e${nextId++}`, type: "food", time, text
 const headache = (time, over = {}) => ({ id: `e${nextId++}`, type: "headache", time, ...over });
 const sleep = (hours, time = "07:00") => ({ id: `e${nextId++}`, type: "sleep", time, hours });
 const note = () => ({ id: `e${nextId++}`, type: "note", time: "09:00", text: "fine" });
+const rice = () => food("12:00", item("rice", { food_type: null })); // makes a control window count for food
 
 // { 0: [entries], 3: [entries] } -> days, keyed by offset from BASE.
 const daysOf = (log) => Object.entries(log).map(([n, entries]) => ({ date: date(Number(n)), entries }));
 const factor = (stats, key) => stats.factors.find((f) => f.key === key);
 
-// 40 clean two-day spans (days 0 to 79, cheddar in 6), then five attacks on odd
+// 40 clean two-day spans (days 0 to 79, food in each, cheddar in 6), then five attacks on odd
 // days 81 to 89, one day apart so no span fits, with cheddar before the first three.
 function fixture(foodName = "cheddar", over = {}) {
   const log = {};
-  for (let n = 0; n < 80; n++) log[n] = [note()];
+  for (let n = 0; n < 80; n++) log[n] = n % 2 ? [note()] : [rice()];
   for (const n of [0, 2, 4, 6, 8, 10]) log[n].push(food("12:00", item(foodName, over)));
   for (const n of [81, 83, 85, 87, 89]) log[n] = [headache("10:00")];
   for (const n of [80, 82, 84]) log[n] = [food("20:00", item(foodName, over))];
@@ -35,7 +37,7 @@ function fixture(foodName = "cheddar", over = {}) {
 // `hits` of 8 attacks follow the food; `controlHits` of 40 controls contain it.
 function statsWith(name, hits, controlHits, over = {}) {
   const log = {};
-  for (let n = 0; n < 80; n++) log[n] = [note()];
+  for (let n = 0; n < 80; n++) log[n] = n % 2 ? [note()] : [rice()];
   for (let i = 0; i < controlHits; i++) log[i * 2].push(food("12:00", item(name, over)));
   for (let i = 0; i < 8; i++) {
     log[81 + i * 2] = [headache("10:00")];
@@ -95,15 +97,35 @@ test("the lookback runs from 48 hours before the start, up to but not including 
   assert.deepEqual(stats.factors.filter((f) => f.key.startsWith("food:")).map((f) => f.key).sort(), ["food:exactly 48", "food:just before"]);
 });
 
-test("start_at wins over date and time", () => {
-  const start = new Date(`${date(5)}T09:00:00`).toISOString();
+test("an attack starts at its stored date and time, not at start_at", () => {
+  const elsewhere = new Date(`${date(5)}T09:00:00Z`).toISOString();
   const stats = buildStats(daysOf({
-    0: [headache("20:00", { start_at: start })],
+    0: [food("12:00", item("after")), headache("10:00", { start_at: elsewhere })],
     4: [food("12:00", item("near start_at"))],
   }), { now: nowAfter(9) });
-  assert.equal(factor(stats, "food:near start_at").beforeHeadache, 1);
+  assert.deepEqual(stats.factors, []);
+  assert.equal(stats.attacks, 1);
 });
 
+test("an invalid time counts as 12:00 and does not throw", () => {
+  const stats = buildStats(daysOf({ 0: [food("99:99", item("bad time")), headache("25:00")] }), { now: nowAfter(5) });
+  assert.equal(stats.attacks, 1);
+  assert.equal(factor(stats, "food:bad time"), undefined, "both land on 12:00");
+  const next = buildStats(daysOf({ 0: [food("99:99", item("bad time"))], 1: [headache("9:30")] }), { now: nowAfter(5) });
+  assert.equal(factor(next, "food:bad time").beforeHeadache, 1, "9:30 parses");
+});
+
+test("attacks within 48 hours of a counted attack share its lookback, so one meal counts once", () => {
+  const stats = buildStats(daysOf({
+    0: [food("08:00", item("one meal"))],
+    1: [headache("07:00"), headache("20:00")],
+    3: [headache("06:59"), headache("07:00")],
+  }), { now: nowAfter(9) });
+  assert.equal(stats.attacks, 4);
+  const f = factor(stats, "food:one meal");
+  assert.equal(f.beforeHeadache, 1, "the attack exactly 48 hours on is new, and the meal is outside it");
+  assert.equal(f.headacheTotal, 2);
+});
 test("one attack across midnight is one attack on two headache days, with or without entries that day", () => {
   const start = new Date(`${date(1)}T22:00:00`);
   const end = new Date(`${date(2)}T02:00:00`);
@@ -123,20 +145,20 @@ test("a factor seen in only one lookback is at most early guess", () => {
   assert.equal(factor(stats, "food:once").confidence, "early guess");
 });
 
-test("confidenceFor needs repeated evidence, then a clear gap from the control rate", () => {
-  assert.equal(confidenceFor(0, 0), "early guess");
-  assert.equal(confidenceFor(2, 2), "early guess");
-  assert.equal(confidenceFor(3, 8), "early guess");
-  assert.equal(confidenceFor(3, 5), "moderate");
-  assert.equal(confidenceFor(4, 5), "moderate");
-  assert.equal(confidenceFor(5, 8), "strong");
-  assert.equal(confidenceFor(5, 8, { hits: 4, total: 40 }), "strong");
-  assert.equal(confidenceFor(5, 8, { hits: 16, total: 40 }), "moderate", "gap under 0.30");
-  assert.equal(confidenceFor(5, 8, { hits: 24, total: 40 }), "early guess", "no real gap");
-  assert.equal(confidenceFor(5, 8, { hits: 0, total: 6 }), "moderate", "too few control windows");
-  assert.equal(confidenceFor(5, 8, { hits: 0, total: 0 }), "early guess", "nothing to compare with");
+test("confidenceFor rests on a Fisher test, corrected for how many factors were tested", () => {
+  assert.equal(confidenceFor(5, 8), "early guess", "no control counts, nothing to compare");
+  assert.equal(confidenceFor(5, 8, { hits: 3, total: 10 }), "early guess", "p is about 0.34");
+  assert.equal(confidenceFor(3, 5, { hits: 0, total: 1 }), "early guess", "too few control windows");
+  assert.equal(confidenceFor(5, 8, { hits: 0, total: 9 }), "early guess", "too few control windows");
+  assert.equal(confidenceFor(2, 2, { hits: 0, total: 100 }), "early guess", "too few lookbacks");
+  assert.equal(confidenceFor(3, 5, { hits: 6, total: 40 }), "moderate");
+  assert.equal(confidenceFor(4, 4, { hits: 0, total: 40 }), "moderate", "under 5 lookbacks is never strong");
+  assert.equal(confidenceFor(6, 8, { hits: 2, total: 40 }), "strong");
+  assert.equal(confidenceFor(6, 8, { hits: 2, total: 40 }, { tested: 305, cutoff: 0.001 }), "strong");
+  assert.equal(confidenceFor(6, 8, { hits: 2, total: 40 }, { tested: 2000, cutoff: 0.001 }), "moderate", "fails Bonferroni, passes the cutoff");
+  assert.equal(confidenceFor(6, 8, { hits: 2, total: 40 }, { tested: 2000, cutoff: -1 }), "early guess", "fails both");
+  assert.equal(confidenceFor(5, 8, { hits: 24, total: 40 }), "early guess", "no real difference");
 });
-
 test("buildStats gives a repeated factor with a clear gap a strong rating", () => {
   assert.equal(factor(statsWith("red wine", 6, 2), "food:red wine").confidence, "strong");
   assert.equal(factor(statsWith("toast", 6, 28), "food:toast").confidence, "early guess");
@@ -184,31 +206,54 @@ test("sleep falls into bands under 6, 6 to 7 and 7+, and a day's sleep is added 
 
 test("control windows skip headache days, unlogged stretches and days not yet over", () => {
   const stats = buildStats(daysOf({
-    0: [note()], 1: [note()],                 // a span
-    2: [note()], 3: [headache("10:00")],      // day 2 cannot pair with a headache day
-    4: [food("12:00", item("x"))], 5: [note()], // a span
+    0: [sleep(8)], 1: [sleep(8)],               // a span
+    2: [sleep(5)], 3: [headache("10:00")],      // day 2 cannot pair with a headache day
+    4: [sleep(8)], 5: [sleep(8)],               // a span
     // 6 to 19 were never logged
-    20: [note()],                             // pairs with day 19, a span of its own
-    21: [note()],                             // today, so it pairs with nothing
-  }), { now: nowAfter(21) });
-  assert.equal(factor(stats, "food:x"), undefined, "seen only in a control window");
-  const withHit = buildStats(daysOf({
-    0: [note()], 1: [note()], 2: [food("12:00", item("x"))], 3: [headache("10:00")],
-    4: [note()], 5: [note()], 20: [note()], 21: [note()],
+    20: [sleep(8)],                             // today, so it cannot join day 19
   }), { now: nowAfter(20) });
-  assert.equal(factor(withHit, "food:x").controlTotal, 2, "days 0-1 and 4-5; day 20 is today");
+  assert.equal(factor(stats, "sleep:under_6").controlTotal, 2);
+  assert.equal(factor(stats, "sleep:under_6").controlHits, 0);
 });
 
-test("a log with no headache-free span has a control total of 0 and stays an early guess", () => {
+test("a control window counts for food only with split food, and for sleep only with hours", () => {
+  const log = {};
+  for (let n = 0; n < 80; n += 2) log[n] = [note()];
+  log[0] = [sleep(8)];
+  log[2] = [{ id: "old", type: "food", time: "12:00", text: "toast" }];
+  log[4] = [food("12:00", item("rice"))];
+  log[6] = [food("12:00", item("toast"))];
+  for (let i = 0; i < 6; i++) { log[81 + i * 2] = [headache("10:00")]; log[80 + i * 2] = [sleep(5), food("20:00", item("toast"))]; }
+  const stats = buildStats(daysOf(log), { now: nowAfter(120) });
+  const toast = factor(stats, "food:toast");
+  assert.deepEqual([toast.beforeHeadache, toast.headacheTotal, toast.controlHits, toast.controlTotal], [6, 6, 1, 2]);
+  const short = factor(stats, "sleep:under_6");
+  assert.deepEqual([short.beforeHeadache, short.controlHits, short.controlTotal], [6, 0, 1]);
+});
+
+test("food logged only around headaches is no evidence", () => {
+  const log = {};
+  for (let n = 0; n < 80; n++) log[n] = [{ id: "m", type: "meds", time: "08:00", name: "prop", category: "preventive" }];
+  for (let i = 0; i < 6; i++) { log[81 + i * 2] = [headache("10:00")]; log[80 + i * 2] = [food("20:00", item("toast"))]; }
+  const stats = buildStats(daysOf(log), { now: nowAfter(120) });
+  const f = factor(stats, "food:toast");
+  assert.deepEqual([f.beforeHeadache, f.controlTotal, f.confidence], [6, 0, "early guess"]);
+  const { try_next } = ruleSuggestion(stats, []);
+  assert.equal(try_next.factor_key, null);
+  assert.match(try_next.title, /log/i);
+});
+test("a log with no headache-free span stays an early guess and asks for logging", () => {
   const log = {};
   for (let i = 0; i < 6; i++) log[i * 2] = [headache("10:00")];
-  for (let i = 0; i < 5; i++) log[i * 2 + 1] = [food("12:00", item("coffee"))];
+  for (let i = 0; i < 5; i++) log[i * 2 + 1] = [sleep(8), food("12:00", item("coffee"))];
   const stats = buildStats(daysOf(log), { now: nowAfter(11) });
   const f = factor(stats, "food:coffee");
   assert.equal(f.controlTotal, 0);
   assert.equal(f.beforeHeadache, 5);
   assert.equal(f.confidence, "early guess");
-  assert.match(ruleSuggestion(stats, []).try_next.why, /no headache-free/i);
+  const { try_next } = ruleSuggestion(stats, []);
+  assert.equal(try_next.factor_key, null);
+  assert.doesNotMatch(try_next.title, /coffee/i);
 });
 
 test("cycle reports headache days by cycle day, and is null with no period data", () => {
@@ -412,16 +457,59 @@ test("ruleSuggestion never targets a main_macro value", () => {
   assert.ok(!stats.factors.some((f) => macros.test(f.key)));
 });
 
-test("broad or vague groups are reported but never suggested", () => {
-  for (const food_type of ["drinks", "other"]) {
+test("only dairy and sweets are suggestible groups, and a broad top signal goes to the doctor", () => {
+  for (const food_type of ["meat_fish", "grains", "fruit_veg", "legumes_nuts", "drinks", "other"]) {
     const stats = statsWith("mystery", 6, 2, { food_type });
     assert.ok(factor(stats, `type:${food_type}`));
     stats.factors = stats.factors.filter((f) => !f.key.startsWith("food:"));
     const result = ruleSuggestion(stats, []);
-    assert.equal(result.try_next.factor_key?.startsWith("type:") ?? false, false);
+    assertValid(result);
+    assert.ok(!(result.try_next.factor_key || "").startsWith("type:"), food_type);
+    assert.ok(!result.also_watching.some((w) => w.item === stats.factors[0].label));
+    assert.ok(result.doctor_questions.some((q) => q.startsWith(stats.factors[0].label)), food_type);
+  }
+  for (const [food_type, key] of [["dairy", "type:dairy"], ["sweets_snacks", "type:sweets_snacks"]]) {
+    const stats = statsWith("mystery", 6, 2, { food_type });
+    stats.factors = stats.factors.filter((f) => !f.key.startsWith("food:"));
+    assert.equal(ruleSuggestion(stats, []).try_next.factor_key, key);
   }
 });
 
+test("an individual food in a broad group stays suggestible", () => {
+  const result = ruleSuggestion(statsWith("red wine", 6, 2, { food_type: "drinks" }), []);
+  assert.equal(result.try_next.factor_key, "food:red wine");
+  assert.ok(!result.doctor_questions.some((q) => q.startsWith("Drinks")), "the food outranks its group");
+});
+
+test("a broad group that is only an early guess stays away from the doctor", () => {
+  const stats = statsWith("mystery", 3, 4, { food_type: "grains" });
+  stats.factors = stats.factors.filter((f) => f.key === "type:grains").map((f) => ({ ...f, confidence: "early guess" }));
+  assert.deepEqual(ruleSuggestion(stats, []).doctor_questions.filter((q) => q.startsWith("Grains")), []);
+});
+
+test("water and medicines are never food factors", () => {
+  const meds = { id: "m", type: "meds", time: "08:00", name: " Rizatriptan ", category: "acute" };
+  const stats = buildStats(daysOf({
+    0: [meds, food("12:00", item("Water"), item("sparkling water"), item("watermelon"), item("rizatriptan"), item("Ibuprofen 400mg"), item("advil"), item("Mystery pill"))],
+    1: [headache("10:00")],
+  }), { now: nowAfter(5), medNames: ["mystery pill"] });
+  assert.deepEqual(stats.factors.filter((f) => f.key.startsWith("food:")).map((f) => f.key), ["food:watermelon"]);
+});
+
+test("caffeine suggestions say to ease down gradually", () => {
+  const stats = statsWith("coffee", 6, 2, { tags: ["caffeine"] });
+  const food = ruleSuggestion(stats, []);
+  assert.equal(food.try_next.factor_key, "food:coffee");
+  stats.factors = stats.factors.filter((f) => !f.key.startsWith("food:"));
+  const tag = ruleSuggestion(stats, []);
+  assert.equal(tag.try_next.factor_key, "tag:caffeine");
+  for (const { try_next } of [food, tag]) {
+    assert.doesNotMatch(try_next.title, /skip/i);
+    assert.match(try_next.action, /gradually over a week or so/);
+    assert.match(try_next.action, /suddenly can trigger headaches/);
+    assert.equal(try_next.days, 21);
+  }
+});
 test("7+ hours of sleep is reported but never suggested as something to change", () => {
   const log = {};
   for (let n = 0; n < 80; n++) log[n] = [sleep(5)];
@@ -498,4 +586,113 @@ test("patterns.js pulls in no browser or data modules", () => {
   assert.deepEqual([...seen].sort(), ["dates.js", "food-items.js", "headache.js", "patterns.js"]);
   assert.doesNotMatch(read("patterns.js"), /\bdocument\.|\bwindow\.\w|\blocalStorage\b|\bfetch\(/);
   assert.doesNotMatch(read("patterns.js"), /main_macro/, "main_macro is never read");
+});
+
+// mulberry32: small, fast and seeded, so the simulations give the same answer every run.
+function prng(seed) {
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Full logging, with `foods` eaten at random and attacks at random.
+function simulate(random, { nDays, pHeadache, nFoods, pFood, signal = null }) {
+  const days = [];
+  for (let n = 0; n < nDays; n++) {
+    const items = [];
+    for (let f = 0; f < nFoods; f++) if (random() < pFood) items.push(item(`food${f}`));
+    const entries = [sleep(8), food("12:00", ...items)];
+    const attack = random() < pHeadache;
+    if (attack) entries.push(headache("18:00"));
+    days.push({ date: date(n), entries });
+    if (signal && attack && random() < signal) days[n].entries[1].items.push(item("trigger"));
+  }
+  return buildStats(days, { now: nowAfter(nDays + 30) });
+}
+
+test("on pure noise, moderate or strong stays rare", () => {
+  const scenarios = [
+    { nDays: 42, pHeadache: 0.12, nFoods: 30, pFood: 0.15 },
+    { nDays: 60, pHeadache: 0.12, nFoods: 40, pFood: 0.15 },
+    { nDays: 90, pHeadache: 0.10, nFoods: 40, pFood: 0.15 },
+    { nDays: 90, pHeadache: 0.10, nFoods: 40, pFood: 0.30 },
+    { nDays: 365, pHeadache: 0.15, nFoods: 60, pFood: 0.20 },
+  ];
+  const runs = 200;
+  scenarios.forEach((scenario, i) => {
+    const random = prng(1000 + i);
+    let confident = 0, strong = 0, anyFactor = 0;
+    for (let r = 0; r < runs; r++) {
+      const stats = simulate(random, scenario);
+      const { confidence } = ruleSuggestion(stats, []).try_next;
+      if (confidence !== "early guess") confident++;
+      if (confidence === "strong") strong++;
+      if (stats.factors.some((f) => f.confidence !== "early guess")) anyFactor++;
+    }
+    assert.ok(confident / runs <= 0.05, `try_next ${confident}/${runs} in scenario ${i}`);
+    assert.ok(anyFactor / runs <= 0.05, `any factor ${anyFactor}/${runs} in scenario ${i}`);
+    assert.ok(strong / runs <= 0.03, `strong ${strong}/${runs} in scenario ${i}`);
+  });
+});
+
+test("a real signal of 6 of 8 against 2 of 40 survives 300 other factors", () => {
+  const log = {};
+  for (let n = 0; n < 80; n++) log[n] = n % 2 ? [note()] : [rice()];
+  log[0].push(food("12:00", item("trigger"))); log[2].push(food("12:00", item("trigger")));
+  for (let i = 0; i < 8; i++) {
+    log[81 + i * 2] = [headache("10:00")];
+    const noise = Array.from({ length: 300 }, (_, f) => f).filter((f) => f % 8 === i).map((f) => item(`noise ${f}`));
+    log[80 + i * 2] = [food("20:00", ...noise, ...(i < 6 ? [item("trigger")] : []))];
+  }
+  const stats = buildStats(daysOf(log), { now: nowAfter(120) });
+  const f = factor(stats, "food:trigger");
+  assert.ok(stats.factors.length > 300);
+  assert.deepEqual([f.beforeHeadache, f.headacheTotal, f.controlHits, f.controlTotal], [6, 8, 2, 40]);
+  assert.notEqual(f.confidence, "early guess");
+  assert.equal(ruleSuggestion(stats, []).try_next.factor_key, "food:trigger");
+});
+
+test("a simulated trigger rises above the noise", () => {
+  const random = prng(7);
+  let found = 0;
+  const runs = 50;
+  for (let r = 0; r < runs; r++) {
+    const stats = simulate(random, { nDays: 120, pHeadache: 0.1, nFoods: 40, pFood: 0.15, signal: 0.8 });
+    if (stats.factors.find((f) => f.key === "food:trigger" && f.confidence !== "early guess")) found++;
+  }
+  assert.ok(found / runs >= 0.6, `found in ${found} of ${runs}`);
+});
+
+test("the same log gives the same results in UTC and in New York", () => {
+  const url = new URL("../public/js/patterns.js", import.meta.url).href;
+  const headacheUrl = new URL("../public/js/headache.js", import.meta.url).href;
+  const script = `
+    import { buildStats, ruleSuggestion } from ${JSON.stringify(url)};
+    import { headacheDaySet } from ${JSON.stringify(headacheUrl)};
+    const it = (name) => ({ name, food_type: "dairy", tags: [] });
+    const food = (time, name) => ({ type: "food", time, split_status: "done", items: [it(name)] });
+    const days = [
+      { date: "2026-03-09", entries: [food("23:30", "late snack"), { type: "note", time: "09:00" }] },
+      // Logged in New York: 10:00 local is 14:00Z, and lunch is after the attack.
+      { date: "2026-03-10", entries: [food("12:00", "after attack"), { type: "headache", time: "10:00", start_at: "2026-03-10T14:00:00.000Z", end_at: "2026-03-10T15:00:00.000Z" }] },
+      { date: "2026-03-20", entries: [food("12:00", "toast")] },
+      // 22:00 local is 02:00Z the next day. It ends at 23:30 local, the same date.
+      { date: "2026-03-24", entries: [{ type: "headache", time: "22:00", start_at: "2026-03-25T02:00:00.000Z", end_at: "2026-03-25T03:30:00.000Z" }] },
+      // 22:00 local to 01:00 local crosses midnight.
+      { date: "2026-03-28", entries: [{ type: "headache", time: "22:00", start_at: "2026-03-29T02:00:00.000Z", end_at: "2026-03-29T05:00:00.000Z" }] },
+    ];
+    const now = new Date("2026-04-02T03:00:00Z");
+    const stats = buildStats(days, { now });
+    console.log(JSON.stringify({ stats, suggestion: ruleSuggestion(stats, []), dates: [...headacheDaySet(days)] }));
+  `;
+  const run = (TZ) => execFileSync(process.execPath, ["--input-type=module", "-e", script], { env: { ...process.env, TZ }, encoding: "utf8" });
+  const utc = run("UTC");
+  assert.equal(utc, run("America/New_York"));
+  assert.equal(utc, run("Asia/Tokyo"));
+  const { stats, dates } = JSON.parse(utc);
+  assert.deepEqual(dates, ["2026-03-10", "2026-03-24", "2026-03-28", "2026-03-29"]);
+  assert.deepEqual(stats.factors.filter((f) => f.key.startsWith("food:")).map((f) => f.key), ["food:late snack"]);
 });
