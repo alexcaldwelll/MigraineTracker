@@ -6,13 +6,12 @@ import { dayTotals, formatAmount, itemAmount, splitEntry, triggerLabel, triggerT
 import { commitDraft, logQuickMed, openEditSheet, openItemSheet, openSheet, submitEntry } from './forms.js';
 import { endHeadache, findOpenHeadache, isStale, startHeadache } from './headache.js';
 import { settleTrials } from './insights.js';
-import { activeTrial, trialDay, trialLabel } from './trials.js';
+import { activeTrial, stopGate, trialDay, trialLabel } from './trials.js';
 import { $, $$, escapeHtml, svgIcon, xIcon, activateTab, getSingle } from './ui.js';
 
 let onEntryChanged = ()=>{};       // History redraws when a row changes
 let renderCount = 0;               // only the newest render may draw, when days change quickly
 let allDays = [];                  // every day from listAll, so an open headache from an earlier day is found
-let needsReload = true;            // allDays may be behind the database
 let headacheBusy = false;          // one headache save at a time, so a double tap cannot log two
 let stillGoingDismissed = false;   // "Yes, still going" is remembered until the page reloads, so the card stops asking
 
@@ -73,13 +72,6 @@ async function renderMedsModal(){
     : meds.map(m=>`<div class="med-catalog-item"><span>${escapeHtml(m.name)} <span class="cat">(${escapeHtml(m.category)}${m.default_dose?', '+escapeHtml(m.default_dose):''})</span></span><button type="button" class="x" data-id="${m.id}" aria-label="Remove ${escapeHtml(m.name)}">${xIcon()}</button></div>`).join('');
   $$('#medsCatalogList .x').forEach(x=> x.addEventListener('click', ()=> deleteMed(x.dataset.id)));
 }
-async function deleteEntry(id){
-  try{
-    await data().remove(id);
-  }catch(error){
-    alert('Delete failed: ' + error.message); console.error(error);
-  }
-}
 async function deleteMed(id){
   await data().removeMed(id).catch(console.error);
   renderMedsModal(); renderToday();
@@ -97,17 +89,19 @@ function showHeadacheError(message, retry){
 }
 function hideHeadacheError(){ $('#headacheError').hidden = true; }
 
-// Reads every day once (at startup, and again after a headache changes). The
-// last good copy stays if the read fails.
+// Reads every day: at startup, after a headache changes and before any headache
+// save. The last good copy stays if the read fails. Returns whether this read
+// worked.
 export async function refreshHeadache(){
+  let ok = false;
   try{
     allDays = await data().listAll();
-    needsReload = false;
+    ok = true;
   }catch(error){
     console.error(error);
   }
   renderHeadacheButton();
-  return !needsReload;
+  return ok;
 }
 export function renderHeadacheButton(){
   const open = findOpenHeadache(allDays);
@@ -125,14 +119,16 @@ export function renderHeadacheButton(){
   }
 }
 
-// Runs one headache save. The button stays disabled until it finishes.
+// Runs one headache save on freshly read days, because another device may have
+// changed or ended the headache: a stale copy would overwrite its details or open
+// a second one. The button stays disabled until it finishes.
 async function runHeadache(task){
   if(headacheBusy) return;
   headacheBusy = true;
   $('#headacheBtn').disabled = true;
   hideHeadacheError();
   try{
-    if(needsReload && !(await refreshHeadache())){
+    if(!(await refreshHeadache())){
       showHeadacheError('Could not check for a headache that is already open. Try again.', ()=> runHeadache(task));
       return;
     }
@@ -151,39 +147,42 @@ async function beginHeadache(entry){
     showHeadacheError(`Not saved: ${result.error}`, ()=> runHeadache(()=> beginHeadache(startHeadache(allDays, new Date(entry.start_at)))));
     return;
   }
-  needsReload = true;
   await refreshHeadache();
   showDay(date);
   const saved = findOpenHeadache(allDays);
   if(saved) openEditSheet(saved, { title: 'Headache details' });
 }
-async function finishHeadache(open, endAt){
+async function finishHeadache(endAt){
+  const open = findOpenHeadache(allDays);
+  if(!open) return;  // already ended elsewhere
   const { id, date, ...row } = endHeadache(open, endAt);
   const result = await commitDraft({ id, date, entry: row }, ()=>{});
   if(!result.ok){
-    showHeadacheError(`Not saved: ${result.error}`, ()=> runHeadache(()=> finishHeadache(open, endAt)));
+    showHeadacheError(`Not saved: ${result.error}`, ()=> runHeadache(()=> finishHeadache(endAt)));
     return;
   }
-  needsReload = true;
   await refreshHeadache();
   renderToday();
 }
 function onHeadacheTap(){
-  runHeadache(async ()=>{
-    const open = findOpenHeadache(allDays);
-    if(open) await finishHeadache(open, new Date());
-    else await beginHeadache(startHeadache(allDays, new Date()));
+  const now = new Date();  // the time of the tap, even if a retry saves it
+  return runHeadache(async ()=>{
+    if(findOpenHeadache(allDays)) await finishHeadache(now);
+    else await beginHeadache(startHeadache(allDays, now));
   });
 }
 function onEndAtSaved(){
-  const open = findOpenHeadache(allDays);
   const end = new Date($('#headacheEndAt').value);
-  const start = open && new Date(open.start_at || `${open.date}T${open.time}:00`);
-  if(!open || Number.isNaN(end.getTime()) || end < start || end > new Date()){
-    showHeadacheError('Pick a time between when the headache started and now.');
-    return;
-  }
-  runHeadache(()=> finishHeadache(open, end));
+  return runHeadache(async ()=>{
+    const open = findOpenHeadache(allDays);
+    if(!open) return;  // already ended elsewhere
+    const start = new Date(open.start_at || `${open.date}T${open.time}:00`);
+    if(Number.isNaN(end.getTime()) || end < start || end > new Date()){
+      showHeadacheError('Pick a time between when the headache started and now.');
+      return;
+    }
+    await finishHeadache(end);
+  });
 }
 
 // ---------- The day ----------
@@ -279,13 +278,44 @@ export function wireEntryRows(containerSel, date){
       renderToday(); onEntryChanged();
     });
   });
-  $(containerSel).querySelectorAll('.x').forEach(x=>{
-    x.addEventListener('click', async ()=>{
-      await deleteEntry(x.dataset.id);
-      refreshHeadache();
-      renderToday(); onEntryChanged();
-    });
+  $(containerSel).querySelectorAll('.x').forEach(wireDelete);
+}
+// Deleting takes two taps, like stopping a trial. After a failed delete it stays
+// armed, so one more tap tries again.
+function wireDelete(x){
+  const row = x.closest('.entry-item');
+  const keep = row.querySelector('.entry-keep'), error = row.querySelector('.entry-error');
+  const icon = x.innerHTML, label = x.getAttribute('aria-label');
+  const gate = stopGate();
+  const arm = ()=>{
+    x.textContent = 'Tap again to delete';
+    x.setAttribute('aria-label', 'Tap again to delete this entry');
+    x.classList.add('armed');
+    keep.hidden = false;
+  };
+  const disarm = ()=>{
+    gate.cancel();
+    x.innerHTML = icon;
+    x.setAttribute('aria-label', label);
+    x.classList.remove('armed');
+    keep.hidden = true; error.hidden = true;
+  };
+  x.addEventListener('click', async ()=>{
+    if(gate.press() === 'arm'){ arm(); return; }
+    x.disabled = true; error.hidden = true;
+    try{
+      await data().remove(x.dataset.id);
+    }catch(e){
+      console.error(e);
+      error.textContent = `Could not delete this: ${e.message || e} It is still here. Tap again to retry.`;
+      error.hidden = false;
+      x.disabled = false;
+      return;
+    }
+    refreshHeadache();
+    renderToday(); onEntryChanged();
   });
+  keep.addEventListener('click', disarm);
 }
 function tagColor(type){
   return `var(--tag-${['food','headache','prodrome','meds','sleep','workout','period','hydration','note'].includes(type)?type:'note'})`;
@@ -389,6 +419,8 @@ export function entryRowHtml(e, date, { editableItems = false } = {}){
       <span class="sr-only">Edit</span>
     </button>
     <button type="button" class="x" data-id="${e.id}" aria-label="Delete ${escapeHtml(tagLabel(e.type))} entry">${xIcon()}</button>
+    <button type="button" class="link-btn entry-keep" hidden>Keep it</button>
+    <div class="warn-box entry-error" role="alert" hidden></div>
     ${e.type==='food' ? foodDetailHtml(e, editableItems) : ''}
   </div>`;
 }

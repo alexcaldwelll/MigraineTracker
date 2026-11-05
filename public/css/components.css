@@ -38,6 +38,9 @@
 button.x{background:none;border:none;}
 .entry-item .x{color:var(--muted);cursor:pointer;padding:2px 4px;display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;border-radius:var(--r-ctrl);transition:color 0.15s var(--ease),background 0.15s var(--ease);}
 .entry-item .x:hover{color:var(--warn);background:var(--warn-tint);}
+.entry-item .x.armed{color:var(--warn-ink);background:var(--warn-tint);font-size:12px;font-weight:600;padding:2px 10px;}
+.entry-item .entry-keep{margin-right:6px;}
+.entry-item .entry-error{flex-basis:100%;margin:4px 9px 8px 0;}
 .med-catalog-item .x{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;color:var(--muted);cursor:pointer;padding:2px;border-radius:6px;transition:color 0.15s var(--ease);}
 .med-catalog-item .x:hover{color:var(--warn);}
 .interruption-row .x{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;}
@@ -156,7 +159,7 @@ button.food-item:hover{border-color:var(--accent);}
   *{transition:none !important;animation:none !important;}
 }
 @media print{
-  nav, .btn, .entry-item .x, #signOutBtn, #settingsBtn, #screenshotRow { display:none !important; }
+  nav, .btn, .entry-item .x, .entry-item .entry-keep, #signOutBtn, #settingsBtn, #screenshotRow { display:none !important; }
   .card{ break-inside: avoid; box-shadow:none; }
   .food-item{ border:none; padding:2px 0; min-height:0; background:none; }
   .pill{ border:1px solid var(--line-strong); background:none; color:var(--ink); }
