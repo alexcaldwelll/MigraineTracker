@@ -525,7 +525,7 @@ const hasSignal = f => f.key !== 'sleep:7_plus'
 const worthSuggesting = f => hasSignal(f) && !isBroadType(f) && !mentionsMedicine(f.label, MIGRAINE_MEDS);
 
 // True for a suggestion a completed trial already showed no improvement from.
-function notHelpedBefore(pastTrials){
+export function notHelpedBefore(pastTrials){
   const keys = new Set(), titles = new Set();
   for(const trial of pastTrials || []){
     if(!trial || trial.status !== 'completed' || !trial.suggestion || !trial.result) continue;

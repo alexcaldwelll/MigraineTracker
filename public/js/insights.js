@@ -6,7 +6,7 @@ import { foodNames } from './food-items.js';
 import { $, escapeHtml } from './ui.js';
 import { daysWithHeadacheDates, headacheDaySet } from './headache.js';
 import { buildStats, headacheDaysByCycleDay, ruleSuggestion } from './patterns.js';
-import { activeTrial, reviewTrial, startTrial, stopGate, trialDay, trialLabel } from './trials.js';
+import { activeTrial, insightPredatesTrials, reviewTrial, startTrial, stopGate, trialDay, trialLabel } from './trials.js';
 
 let analyzing = false;
 
@@ -144,11 +144,15 @@ export function renderInsight(result, container, { onStart } = {}){
   container.replaceChildren(...sections);
 }
 
-// The last result, with no AI call. A failed read only logs.
-export async function showSavedInsight(container){
+// The last result, with no AI call. One from before the newest trial could offer
+// that trial again, so it is left out until the next analysis. A failed read only
+// logs.
+export async function showSavedInsight(container, pastTrials = trials){
   try{
     const saved = await data().getInsight();
-    if(saved?.result?.try_next && !analyzing) renderInsight(saved.result, container, { onStart: startFrom });
+    if(!saved?.result?.try_next || analyzing) return;
+    if(insightPredatesTrials(saved, pastTrials)) container.replaceChildren();
+    else renderInsight(saved.result, container, { onStart: startFrom });
   }catch(error){
     console.error(error);
   }
@@ -157,9 +161,9 @@ export async function showSavedInsight(container){
 // When the AI function cannot be reached. Rejects if the log cannot be read,
 // because an empty log would give a suggestion that is simply wrong.
 async function localInsight(today){
-  const [days, meds] = await Promise.all([data().listAll(), emptyOnError(data().listMeds())]);
+  const [days, meds, pastTrials] = await Promise.all([data().listAll(), emptyOnError(data().listMeds()), emptyOnError(data().listTrials())]);
   const stats = buildStats(days, { today, medNames: meds.map(med=> med.name) });
-  return { ...ruleSuggestion(stats), source: 'rules' };
+  return { ...ruleSuggestion(stats, pastTrials), source: 'rules' };
 }
 
 async function saveInsight(insight){

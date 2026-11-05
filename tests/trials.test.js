@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { activeTrial, dueTrial, reviewTrial, startTrial, stopGate, trialDay, trialLabel } from "../public/js/trials.js";
+import { activeTrial, dueTrial, insightPredatesTrials, reviewTrial, startTrial, stopGate, trialDay, trialLabel } from "../public/js/trials.js";
 import { setBackend } from "../public/js/data.js";
-import { settleTrials, startFrom, stopTrial } from "../public/js/insights.js";
+import { requestInsight, settleTrials, showSavedInsight, startFrom, stopTrial } from "../public/js/insights.js";
 import { buildStats, ruleSuggestion } from "../public/js/patterns.js";
 import { shiftDate } from "../public/js/dates.js";
 
@@ -179,4 +179,65 @@ test("stopTrial saves stopped with no result, and a failure rejects so Retry can
 test("labels come from the factor key", () => {
   assert.equal(trialLabel(trial()), "Sleep trial");
   assert.equal(trialLabel(trial({ suggestion: { ...NEXT, factor_key: null } })), "Your trial");
+});
+
+// ---------- A failed trial is not offered again ----------
+
+test("an insight older than the newest trial is out of date, however each date is written", () => {
+  const saved = { created_at: "2026-03-10T09:00:00.000Z" };
+  const later = { created_at: "2026-03-10T09:00:00.123456+00:00" };
+  assert.equal(insightPredatesTrials(saved, [later]), true);
+  assert.equal(insightPredatesTrials(saved, [{ created_at: "2026-03-10T10:00:00+01:00" }]), false);
+  assert.equal(insightPredatesTrials({ created_at: "2026-03-11T00:00:00Z" }, [later]), false);
+  assert.equal(insightPredatesTrials(saved, []), false);
+});
+
+function fakeInsightPage() {
+  const doc = { createElement: () => ({ ownerDocument: doc, append() {}, addEventListener() {} }) };
+  const page = { kids: null, ownerDocument: doc, replaceChildren(...kids) { page.kids = kids; } };
+  return page;
+}
+
+test("a saved insight from before the newest trial is not shown, and an older screen is cleared", async () => {
+  const page = fakeInsightPage();
+  setBackend({ getInsight: async () => ({ created_at: "2026-03-01T00:00:00Z", result: { try_next: NEXT } }) });
+  await showSavedInsight(page, [trial({ status: "completed", created_at: "2026-03-02T00:00:00Z" })]);
+  assert.deepEqual(page.kids, []);
+});
+
+test("a saved insight from after the newest trial is shown", async () => {
+  const page = fakeInsightPage();
+  setBackend({ getInsight: async () => ({ created_at: "2026-03-03T00:00:00Z", result: { try_next: NEXT } }) });
+  await showSavedInsight(page, [trial({ status: "completed", created_at: "2026-03-02T00:00:00Z" })]);
+  assert.ok(page.kids.length > 0);
+});
+
+test("the browser's own fallback rules out a trial that did not help", async (t) => {
+  quiet(t);
+  const log = {};
+  for (let n = 0; n < 80; n++) log[n] = n % 2 ? [ent("note", "09:00", { text: "x" })] : [rice()];
+  for (const n of [0, 2, 4, 6, 8, 10]) log[n].push(cheddar());
+  [81, 91, 101, 111, 121].forEach((n, i) => { log[n] = [ent("headache", "10:00")]; if (i < 3) log[n].push(cheddar()); });
+  const days = Object.entries(log).map(([n, entries]) => ({ date: shiftDate("2026-01-01", Number(n)), entries }));
+  const backend = (trials) => ({
+    ai: async () => { throw new Error("offline"); },
+    listAll: async () => days,
+    listMeds: async () => [],
+    listTrials: async () => trials,
+  });
+  setBackend(backend([]));
+  assert.equal((await requestInsight("2026-05-20")).try_next.factor_key, "food:cheddar");
+  setBackend(backend([done({ before: 1, during: 2 })]));
+  assert.notEqual((await requestInsight("2026-05-20")).try_next.factor_key, "food:cheddar");
+});
+
+test("the fallback still answers when the trials cannot be read", async (t) => {
+  quiet(t);
+  setBackend({
+    ai: async () => { throw new Error("offline"); },
+    listAll: async () => [],
+    listMeds: async () => [],
+    listTrials: async () => { throw new Error("offline"); },
+  });
+  assert.equal((await requestInsight("2026-05-20")).source, "rules");
 });

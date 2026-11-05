@@ -668,3 +668,28 @@ test("analyze shows no medication note below the flag line, whatever Claude wrot
   assert.equal(source, "ai");
   assert.equal(result.medication_note, null);
 });
+
+const failedTrial = (suggestion) => ({ status: "completed", suggestion, result: { before: 1, during: 2 } });
+
+test("analyze uses the rules when Claude repeats a failed trial by key", async (t) => {
+  t.mock.method(console, "error", () => {});
+  const answer = { ...GOOD_ANSWER, try_next: { ...GOOD_ANSWER.try_next, title: "Go without cheddar", factor_key: "food:cheddar" } };
+  const { actions } = actionFakes({ answer, trials: [failedTrial({ title: "Skip cheddar", factor_key: "food:cheddar" })] });
+  const { source } = await actions.analyze({ today: "2026-01-03" }, { token: "good-token" });
+  assert.equal(source, "rules");
+});
+
+test("analyze uses the rules when Claude repeats a failed trial by title", async (t) => {
+  t.mock.method(console, "error", () => {});
+  const { actions } = actionFakes({ trials: [failedTrial({ title: " skip CHEDDAR for 2 weeks", factor_key: null })] });
+  const { source } = await actions.analyze({ today: "2026-01-03" }, { token: "good-token" });
+  assert.equal(source, "rules");
+});
+
+test("analyze keeps Claude's answer when the matching trial helped or was stopped", async () => {
+  const helped = { status: "completed", suggestion: { title: "Skip cheddar for 2 weeks" }, result: { before: 2, during: 1 } };
+  const stopped = { status: "stopped", suggestion: { title: "Skip cheddar for 2 weeks" }, result: null };
+  const { actions } = actionFakes({ trials: [helped, stopped] });
+  const { source } = await actions.analyze({ today: "2026-01-03" }, { token: "good-token" });
+  assert.equal(source, "ai");
+});

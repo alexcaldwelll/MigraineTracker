@@ -650,6 +650,7 @@ function fakeBackend(overrides = {}) {
     getInsight: async () => null,
     listAll: async () => [],
     listMeds: async () => [],
+    listTrials: async () => [],
     ...overrides,
   });
   return calls;

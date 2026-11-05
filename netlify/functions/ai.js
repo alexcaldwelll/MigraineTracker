@@ -7,7 +7,7 @@ import { INSIGHT_SCHEMA, fitToStats, promptFactors, validateInsight } from "./li
 import { ANALYZE_SYSTEM, SCREENSHOTS, SPLIT_FOOD_SYSTEM, analyzeContent, formatLog } from "./lib/prompts.js";
 import { consumeQuota } from "./lib/quota.js";
 import { ValidationError, validateRequest } from "./lib/validate.js";
-import { buildStats, medicationNote, ruleSuggestion } from "../../public/js/patterns.js";
+import { buildStats, medicationNote, notHelpedBefore, ruleSuggestion } from "../../public/js/patterns.js";
 
 const json = (status, body, headers) => Response.json(body, { status, headers });
 
@@ -75,8 +75,8 @@ export function createActions({ callClaude, loadEntries, loadMeds, loadTrials = 
     return { items: validateItems(result?.items) };
   };
 
-  // Always ends in a suggestion: when Claude fails or its answer breaks a safety
-  // rule, the rule-based one goes back instead. A failed load is an error, so the
+  // Always ends in a suggestion: when Claude fails, its answer breaks a safety rule
+  // or it repeats a trial that did not help, the rule-based one goes back instead. A failed load is an error, so the
   // browser falls back, and nothing is checked against a partial med list.
   const analyze = async ({ today }, { token }) => {
     const [rows, meds, pastTrials] = await Promise.all([
@@ -105,8 +105,9 @@ export function createActions({ callClaude, loadEntries, loadMeds, loadTrials = 
         schema: INSIGHT_SCHEMA,
       });
       const result = fitToStats(validateInsight(answer, { medNames }), factors);
-      if (result) return { result: { ...result, medication_note: medicationNote(stats) }, source: "ai" };
-      console.error("analyze used rules", { reason: "failed_validation" });
+      const repeatsFailure = Boolean(result) && notHelpedBefore(pastTrials)(result.try_next);
+      if (result && !repeatsFailure) return { result: { ...result, medication_note: medicationNote(stats) }, source: "ai" };
+      console.error("analyze used rules", { reason: repeatsFailure ? "repeats_failed_trial" : "failed_validation" });
     } catch (err) {
       // Labels only, as in the handler.
       console.error("analyze used rules", { error: err?.name, reason: err?.reason, status: err?.status });
