@@ -4,7 +4,7 @@ A small web app for people with migraines to log what they eat, how they sleep, 
 
 It was built for a few invited family and friends, not for public sign-up. It is not a medical device. It does not diagnose anything and it does not give medication advice. It points out patterns worth raising with a doctor.
 
-**Live site and demo:** _link added after deployment_
+**Live site and demo:** <https://migraine-website.netlify.app>
 
 The "View demo" button on the sign-in screen opens the app with made-up sample data. It needs no account and sends nothing anywhere. The screenshots below show that fictional data, not a real person's log.
 
