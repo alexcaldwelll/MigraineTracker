@@ -267,3 +267,29 @@ test("with no Supabase library, sign-in says so and the demo still opens", async
   assert.equal(entered.length, 1);
   assert.equal($("#app").style.display, "block");
 });
+
+function startWithAddress(t, search) {
+  const $ = fakePage();
+  t.after(() => { delete globalThis.document; });
+  globalThis.document.body = { classList: { add() {} } };
+  let listening = false;
+  const entered = [];
+  const client = { auth: { onAuthStateChange() { listening = true; } } };
+  initAuth(client, () => entered.push(true), search);
+  return { $, entered, listening: () => listening };
+}
+
+test("a ?demo address opens the demo with no sign-in screen", (t) => {
+  const { $, entered, listening } = startWithAddress(t, "?demo");
+  assert.equal(entered.length, 1);
+  assert.equal($("#app").style.display, "block");
+  assert.equal($("#authScreen").style.display, "none");
+  assert.equal($("#demoBanner").hidden, false);
+  assert.equal(listening(), false, "the demo never touches a signed-in session");
+});
+
+test("any other address still waits for sign-in", (t) => {
+  const { entered, listening } = startWithAddress(t, "?utm=github");
+  assert.equal(entered.length, 0);
+  assert.equal(listening(), true);
+});

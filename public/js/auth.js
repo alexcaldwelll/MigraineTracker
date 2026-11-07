@@ -65,7 +65,9 @@ function showPasswordChangedNote(){
   setTimeout(()=> note.remove(), 4000);
 }
 
-export function initAuth(client, onEnter){
+// search is the page address's query string. ?demo is the public link in the
+// README: it opens the sample data straight away, for anyone, with no account.
+export function initAuth(client, onEnter, search = globalThis.location?.search ?? ''){
   enterApp = onEnter;
 
   $('#authSignInBtn').addEventListener('click', async ()=>{
@@ -77,7 +79,7 @@ export function initAuth(client, onEnter){
     $('#authStatus').textContent = error ? ('Error: ' + error.message) : '';
   });
   $('#gateRetryBtn').addEventListener('click', gateSession);
-  $('#demoBtn').addEventListener('click', ()=>{
+  function openDemo(){
     demoActive = true;
     gateRun++;
     setBackend(createDemoBackend());
@@ -85,9 +87,8 @@ export function initAuth(client, onEnter){
     $('#demoBanner').hidden = false;
     showOnly('app');
     enterApp();
-  });
-  // Back to sign-in: a reload drops the sample data and the demo backend.
-  $('#demoBanner').addEventListener('click', event=>{ event.preventDefault(); location.reload(); });
+  }
+  $('#demoBtn').addEventListener('click', openDemo);
   $('#savePasswordBtn').addEventListener('click', async ()=>{
     const pw = $('#newPassword').value, confirmPw = $('#confirmPassword').value;
     const status = $('#passwordStatus');
@@ -131,6 +132,7 @@ export function initAuth(client, onEnter){
   async function signOut(){ await client.auth.signOut(); location.reload(); }
   $('#signOutBtn').addEventListener('click', signOut);
   $('#passwordSignOutBtn').addEventListener('click', signOut);
+  if(new URLSearchParams(search).has('demo')){ openDemo(); return; }
   if(!client){
     $('#authSignInBtn').disabled = true;
     $('#authStatus').textContent = 'Sign-in could not load. Check your connection or any content blocker, then reload. The demo still works.';

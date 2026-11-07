@@ -1,12 +1,12 @@
 # Migraine Tracker
 
+**[Try the live demo](https://migraine-website.netlify.app/?demo)**: no account needed. It opens the full app with made-up sample data, and nothing you do in it is saved.
+
 A small web app for people with migraines to log what they eat, how they sleep, what medication they take and when headaches happen, then see which of those things tend to come before a headache.
 
 It was built for a few invited family and friends, not for public sign-up. It is not a medical device. It does not diagnose anything and it does not give medication advice. It points out patterns worth raising with a doctor.
 
-**Live site and demo:** <https://migraine-website.netlify.app>
-
-The "View demo" button on the sign-in screen opens the app with made-up sample data. It needs no account and sends nothing anywhere. The screenshots below show that fictional data, not a real person's log.
+Public sign-up is turned off, so visitors can use the demo but cannot create an account. Real accounts are invite-only, and the AI features only run for signed-in users. The demo sends nothing to Supabase or Claude. The screenshots below show the same fictional data, not a real person's log.
 
 | Today | Insights | History |
 | --- | --- | --- |
